@@ -1,0 +1,99 @@
+name: Generate OpenAPI Spec
+
+on:
+  push:
+    branches: [v4, trunk]
+  pull_request:
+    branches: [v4, trunk]
+  workflow_dispatch:
+
+jobs:
+  gen-openapi:
+    strategy:
+      matrix:
+        node: [24.x]
+        arch: [amd64]
+
+    runs-on: ubuntu-24.04
+
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: zipline
+          POSTGRES_PASSWORD: zipline
+          POSTGRES_DB: zipline
+        options: >-
+          --health-cmd="pg_isready -U zipline -d zipline"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use node@${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        id: pnpm-cache
+        run: |
+          echo "store_path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.pnpm-cache.outputs.store_path }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-${{ matrix.node }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-${{ matrix.node }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}-
+
+      - name: Install
+        run: pnpm install
+
+      - name: Build
+        env:
+          ZIPLINE_BUILD: 'true'
+        run: pnpm build
+
+      - name: Generate secret
+        id: secret
+        run: |
+          SECRET=$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9')
+          echo "secret=$SECRET" >> $GITHUB_OUTPUT
+
+      - name: Wait for Postgres
+        run: |
+          until pg_isready -h localhost -p 5432 -U zipline; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+
+      - name: Run generator
+        env:
+          DATABASE_URL: postgres://zipline:zipline@localhost:5432/zipline
+          CORE_SECRET: ${{ steps.secret.outputs.secret }}
+          NODE_ENV: production
+        run: pnpm openapi
+
+      - name: Verify openapi.json exists
+        run: |
+          if [ ! -f "./openapi.json" ]; then
+            echo "openapi.json not found"
+            exit 1
+          fi
+
+      - name: Upload openapi.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-json
+          path: ./openapi.json

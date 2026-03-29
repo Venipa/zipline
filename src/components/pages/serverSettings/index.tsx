@@ -32,30 +32,33 @@ export default function DashboardServerSettings() {
 
   const scrollToSetting = useMemo(() => {
     return (setting: string) => {
-      console.log('scrolling to setting:', setting);
       const input = document.querySelector<HTMLInputElement>(`[data-path="${setting}"]`);
-      if (input) {
-        const observer = new IntersectionObserver(
-          (entries) => {
-            if (entries[0].isIntersecting) {
-              observer.disconnect();
-              const parent = input.parentElement?.parentElement;
-              if (parent) {
-                parent.style.transition = 'transform 0.35s';
-                parent.style.transform = 'scale(1.2)';
-                setTimeout(() => {
-                  parent.style.transform = 'scale(1)';
-                }, 350);
-              }
-            }
-          },
-          { threshold: 1.0 },
-        );
-        observer.observe(input);
+      const parent = input?.parentElement?.parentElement;
+      if (!input || !parent) return;
 
-        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        input.focus();
-      }
+      parent.style.transition = 'all 0.4s ease';
+      parent.style.borderRadius = 'var(--mantine-radius-xs)';
+      parent.style.outline = '2px solid var(--mantine-primary-color-filled)';
+      parent.style.outlineOffset = 'var(--mantine-spacing-xs)';
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (entries.length === 0) return;
+          if (!entries[0].isIntersecting) return;
+
+          observer.disconnect();
+          setTimeout(() => {
+            parent.style.outline = '0 solid transparent';
+            parent.style.outlineOffset = '0';
+            parent.style.borderRadius = '0';
+          }, 2000);
+        },
+        { threshold: 1.0 },
+      );
+      observer.observe(input);
+
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input.focus();
     };
   }, []);
 

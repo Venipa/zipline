@@ -1,25 +1,37 @@
-import { Prisma } from '@/prisma/client';
+import { ApiError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db';
-import { Invite, inviteInviterSelect } from '@/lib/db/models/invite';
+import { Invite, inviteInviterSelect, inviteSchema } from '@/lib/db/models/invite';
 import { log } from '@/lib/logger';
+import { Prisma } from '@/prisma/client';
 import { administratorMiddleware } from '@/server/middleware/administrator';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiAuthInvitesIdResponse = Invite;
-
-type Params = {
-  id: string;
-};
-
 const logger = log('api').c('auth').c('invites').c('[id]');
 
+const paramsSchema = z.object({
+  id: z.string(),
+});
+
 export const PATH = '/api/auth/invites/:id';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Params: Params }>(
+export default typedPlugin(
+  async (server) => {
+    server.get(
       PATH,
-      { preHandler: [userMiddleware, administratorMiddleware] },
+      {
+        schema: {
+          description:
+            'Fetch a specific invite by ID or code, including information about the inviter (admin only).',
+          params: paramsSchema,
+          response: {
+            200: inviteSchema,
+          },
+          tags: ['auth', 'admin'],
+        },
+        preHandler: [userMiddleware, administratorMiddleware],
+      },
       async (req, res) => {
         const { id } = req.params;
 
@@ -31,15 +43,24 @@ export default fastifyPlugin(
             inviter: inviteInviterSelect,
           },
         });
-        if (!invite) return res.notFound('Invite not found through id or code');
+        if (!invite) throw new ApiError(4005);
 
         return res.send(invite);
       },
     );
 
-    server.delete<{ Params: Params }>(
+    server.delete(
       PATH,
-      { preHandler: [userMiddleware, administratorMiddleware] },
+      {
+        schema: {
+          description: 'Delete a specific invite by ID (admin only).',
+          params: paramsSchema,
+          response: {
+            200: inviteSchema,
+          },
+        },
+        preHandler: [userMiddleware, administratorMiddleware],
+      },
       async (req, res) => {
         const { id } = req.params;
 
@@ -61,16 +82,14 @@ export default fastifyPlugin(
           return res.send(invite);
         } catch (error) {
           if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-            return res.notFound('Invite not found');
+            throw new ApiError(4004);
           }
 
           logger.error(`Failed to delete invite with id ${id}`, { error });
-          return res.internalServerError('Failed to delete invite');
+          throw new ApiError(6000);
         }
       },
     );
-
-    done();
   },
   { name: PATH },
 );

@@ -15,7 +15,7 @@ export default function SettingsMfa() {
 
       <Group mt='xs'>
         {config.mfa.totp.enabled && <TwoFAButton />}
-        {config.mfa.passkeys && <PasskeyButton />}
+        {config.mfa.passkeys.enabled && <PasskeyButton />}
       </Group>
     </Paper>
   );

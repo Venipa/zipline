@@ -1,62 +1,104 @@
+import { ApiError } from '@/lib/api/errors';
 import { datasource } from '@/lib/datasource';
 import { prisma } from '@/lib/db';
 import { log } from '@/lib/logger';
 import { secondlyRatelimit } from '@/lib/ratelimits';
+import { canInteract } from '@/lib/role';
+import { Role } from '@/prisma/client';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiUserFilesTransactionResponse = {
   count: number;
   name?: string;
 };
 
-type Body = {
-  files: string[];
-
-  favorite?: boolean;
-
-  folder?: string;
-
-  delete_datasourceFiles?: boolean;
-};
-
 const logger = log('api').c('user').c('files').c('transaction');
 
+function checkInteraction(
+  current: { id: string; role: Role },
+  roles: { id: string; role: Role }[],
+): number[] {
+  const indices: number[] = [];
+
+  for (let i = 0; i !== roles.length; ++i) {
+    if (roles[i].id === current.id) continue;
+
+    if (!canInteract(current.role, roles[i].role)) {
+      indices.push(i);
+    }
+  }
+
+  return indices;
+}
+
 export const PATH = '/api/user/files/transaction';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.patch<{ Body: Body }>(
+export default typedPlugin(
+  async (server) => {
+    server.patch(
       PATH,
-      { preHandler: [userMiddleware], ...secondlyRatelimit(2) },
+      {
+        schema: {
+          description: 'Bulk update files owned by the user: favorite/unfavorite or move them into a folder.',
+          body: z.object({
+            files: z.array(z.string()).min(1),
+            favorite: z.boolean().optional(),
+            folder: z.string().optional(),
+          }),
+          response: {
+            200: z.object({
+              count: z.number(),
+              name: z.string().optional(),
+            }),
+          },
+          tags: ['auth'],
+        },
+        preHandler: [userMiddleware],
+        ...secondlyRatelimit(2),
+      },
       async (req, res) => {
         const { files, favorite, folder } = req.body;
 
-        if (!files || !files.length) return res.badRequest('Cannot process transaction without files');
-
         if (typeof favorite === 'boolean') {
+          const toFavoriteFiles = await prisma.file.findMany({
+            where: {
+              id: { in: files },
+            },
+            include: {
+              User: true,
+            },
+          });
+
+          const invalids = checkInteraction(
+            { id: req.user.id, role: req.user.role },
+            toFavoriteFiles.map((f) => ({ id: f.userId ?? '', role: f.User?.role ?? 'USER' })),
+          );
+          if (invalids.length > 0)
+            throw new ApiError(3014, `You don't have the permission to modify files[${invalids.join(', ')}]`);
+
           const resp = await prisma.file.updateMany({
             where: {
               id: {
                 in: files,
               },
-              userId: req.user.id,
             },
-
             data: {
               favorite: favorite,
             },
           });
 
-          if (resp.count === 0) return res.badRequest('No files were updated.');
+          if (resp.count === 0) throw new ApiError(1028);
 
           logger.info(`${req.user.username} ${favorite ? 'favorited' : 'unfavorited'} ${resp.count} files`, {
             user: req.user.id,
+            owners: toFavoriteFiles.map((f) => f.userId),
           });
 
           return res.send(resp);
         }
 
-        if (!folder) return res.badRequest("can't PATCH without an action");
+        if (!folder) throw new ApiError(1020);
 
         const f = await prisma.folder.findUnique({
           where: {
@@ -64,7 +106,7 @@ export default fastifyPlugin(
             userId: req.user.id,
           },
         });
-        if (!f) return res.notFound('folder not found');
+        if (!f) throw new ApiError(4001);
 
         const resp = await prisma.file.updateMany({
           where: {
@@ -79,7 +121,7 @@ export default fastifyPlugin(
           },
         });
 
-        if (resp.count === 0) return res.notFound('No files were moved.');
+        if (resp.count === 0) throw new ApiError(4006);
 
         logger.info(`${req.user.username} moved ${resp.count} files to ${f.name}`, {
           user: req.user.id,
@@ -93,13 +135,26 @@ export default fastifyPlugin(
       },
     );
 
-    server.delete<{ Body: Body }>(
+    server.delete(
       PATH,
-      { preHandler: [userMiddleware], ...secondlyRatelimit(2) },
+      {
+        schema: {
+          description: 'Bulk delete files (and optionally delete the underlying datasource objects).',
+          body: z.object({
+            files: z.array(z.string()).min(1),
+            delete_datasourceFiles: z.boolean().optional(),
+          }),
+          response: {
+            200: z.object({
+              count: z.number(),
+            }),
+          },
+        },
+        preHandler: [userMiddleware],
+        ...secondlyRatelimit(2),
+      },
       async (req, res) => {
         const { files } = req.body;
-
-        if (!files || !files.length) return res.badRequest('Cannot process transaction without files');
 
         const { delete_datasourceFiles } = req.body;
 
@@ -108,21 +163,28 @@ export default fastifyPlugin(
           files: files.length,
         });
 
-        if (delete_datasourceFiles) {
-          const dFiles = await prisma.file.findMany({
-            where: {
-              id: {
-                in: files,
-              },
-              userId: req.user.id,
-            },
-          });
+        const toDeleteFiles = await prisma.file.findMany({
+          where: {
+            id: { in: files },
+          },
+          include: {
+            User: true,
+          },
+        });
 
-          for (let i = 0; i !== dFiles.length; ++i) {
-            await datasource.delete(dFiles[i].name);
+        const invalids = checkInteraction(
+          { id: req.user.id, role: req.user.role },
+          toDeleteFiles.map((f) => ({ id: f.userId ?? '', role: f.User?.role ?? 'USER' })),
+        );
+        if (invalids.length > 0)
+          throw new ApiError(3013, `You don't have the permission to delete files[${invalids.join(', ')}]`);
+
+        if (delete_datasourceFiles) {
+          for (let i = 0; i !== toDeleteFiles.length; ++i) {
+            await datasource.delete(toDeleteFiles[i].name);
           }
 
-          logger.info(`${req.user.username} deleted ${dFiles.length} files from datasource`, {
+          logger.info(`${req.user.username} deleted ${toDeleteFiles.length} files from datasource`, {
             user: req.user.id,
           });
         }
@@ -132,21 +194,19 @@ export default fastifyPlugin(
             id: {
               in: files,
             },
-            userId: req.user.id,
           },
         });
 
-        if (resp.count === 0) return res.badRequest('No files were deleted.');
+        if (resp.count === 0) throw new ApiError(1027);
 
         logger.info(`${req.user.username} deleted ${resp.count} files`, {
           user: req.user.id,
+          owners: toDeleteFiles.map((f) => f.userId),
         });
 
         return res.send(resp);
       },
     );
-
-    done();
   },
   { name: PATH },
 );

@@ -1,41 +1,50 @@
 import { config } from '@/lib/config';
-import { randomCharacters } from '@/lib/random';
 import { prisma } from '@/lib/db';
-import { Invite, inviteInviterSelect } from '@/lib/db/models/invite';
+import { Invite, inviteInviterSelect, inviteSchema } from '@/lib/db/models/invite';
 import { log } from '@/lib/logger';
+import { randomCharacters } from '@/lib/random';
+import { secondlyRatelimit } from '@/lib/ratelimits';
 import { parseExpiry } from '@/lib/uploader/parseHeaders';
 import { administratorMiddleware } from '@/server/middleware/administrator';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
-import { secondlyRatelimit } from '@/lib/ratelimits';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiAuthInvitesResponse = Invite | Invite[];
-
-type Body = {
-  expiresAt: string;
-  maxUses?: number;
-};
 
 const logger = log('api').c('auth').c('invites');
 
 export const PATH = '/api/auth/invites';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.post<{ Body: Body }>(
+export default typedPlugin(
+  async (server) => {
+    server.post(
       PATH,
-      { preHandler: [userMiddleware, administratorMiddleware], ...secondlyRatelimit(1) },
+      {
+        schema: {
+          description:
+            'Create a new invite code for user registration, optionally limiting uses and expiration (admin only).',
+          body: z.object({
+            expiresAt: z
+              .string()
+              .or(z.literal('never'))
+              .transform((val) => parseExpiry(val)),
+            maxUses: z.number().min(1).optional(),
+          }),
+          response: {
+            200: inviteSchema,
+          },
+          tags: ['auth', 'admin'],
+        },
+        preHandler: [userMiddleware, administratorMiddleware],
+        ...secondlyRatelimit(1),
+      },
       async (req, res) => {
         const { expiresAt, maxUses } = req.body;
-
-        if (!expiresAt) return res.badRequest('expiresAt is required');
-        let expires = null;
-
-        if (expiresAt !== 'never') expires = parseExpiry(expiresAt);
 
         const invite = await prisma.invite.create({
           data: {
             code: randomCharacters(config.invites.length),
-            expiresAt: expires,
+            expiresAt,
             maxUses: maxUses ?? null,
             inviterId: req.user.id,
           },
@@ -54,17 +63,27 @@ export default fastifyPlugin(
       },
     );
 
-    server.get(PATH, { preHandler: [userMiddleware, administratorMiddleware] }, async (_, res) => {
-      const invites = await prisma.invite.findMany({
-        include: {
-          inviter: inviteInviterSelect,
+    server.get(
+      PATH,
+      {
+        schema: {
+          description: 'List all existing invite codes and their metadata (admin only).',
+          response: {
+            200: z.array(inviteSchema),
+          },
         },
-      });
+        preHandler: [userMiddleware, administratorMiddleware],
+      },
+      async (_, res) => {
+        const invites = await prisma.invite.findMany({
+          include: {
+            inviter: inviteInviterSelect,
+          },
+        });
 
-      return res.send(invites);
-    });
-
-    done();
+        return res.send(invites);
+      },
+    );
   },
   { name: PATH },
 );

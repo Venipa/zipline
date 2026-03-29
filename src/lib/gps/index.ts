@@ -1,6 +1,6 @@
 // heavily modified from @xoi/gps-metadata-remover to fit the needs of zipline
 
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import {
   PNG_TAG,
   PNG_IEND,
@@ -134,6 +134,10 @@ export function removeGps(input: Buffer | string): boolean {
     offset += 4;
     const tiffIfdOffset = littleEndian ? buffer.readUInt32LE(offset) : buffer.readUInt32BE(offset);
     removed = stripGpsFromTiff(buffer, tiffIfdOffset, littleEndian);
+  }
+
+  if (removed && typeof input === 'string') {
+    writeFileSync(input, buffer);
   }
 
   return removed;

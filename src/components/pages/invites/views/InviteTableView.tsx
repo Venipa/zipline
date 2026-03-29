@@ -1,14 +1,15 @@
 import RelativeDate from '@/components/RelativeDate';
 import { Response } from '@/lib/api/response';
 import { Invite } from '@/lib/db/models/invite';
+import { useSettingsStore } from '@/lib/client/store/settings';
 import { ActionIcon, Anchor, Box, Group, Tooltip } from '@mantine/core';
 import { useClipboard } from '@mantine/hooks';
-import { IconCopy, IconTrashFilled } from '@tabler/icons-react';
+import { IconCopy, IconQrcode, IconTrashFilled } from '@tabler/icons-react';
 import { DataTable, DataTableSortStatus } from 'mantine-datatable';
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import useSWR from 'swr';
 import { copyInviteUrl, deleteInvite } from '../actions';
-import { useSettingsStore } from '@/lib/store/settings';
+import QRCodeModal from '@/components/QRCodeModal';
 
 export default function InviteTableView() {
   const clipboard = useClipboard();
@@ -20,28 +21,32 @@ export default function InviteTableView() {
     columnAccessor: 'createdAt',
     direction: 'desc',
   });
-  const [sorted, setSorted] = useState<Invite[]>(data ?? []);
 
-  useEffect(() => {
-    if (data) {
-      const sorted = data.sort((a, b) => {
-        const cl = sortStatus.columnAccessor as keyof Invite;
+  const sorted = useMemo<Invite[]>(() => {
+    if (!data) return [];
 
-        return sortStatus.direction === 'asc' ? (a[cl]! > b[cl]! ? 1 : -1) : a[cl]! < b[cl]! ? 1 : -1;
-      });
+    const { columnAccessor, direction } = sortStatus;
+    const key = columnAccessor as keyof Invite;
 
-      setSorted(sorted);
-    }
-  }, [sortStatus]);
+    return [...data].sort((a, b) => {
+      const av = a[key]!;
+      const bv = b[key]!;
 
-  useEffect(() => {
-    if (data) {
-      setSorted(data);
-    }
-  }, [data]);
+      if (av === bv) return 0;
+      return direction === 'asc' ? (av > bv ? 1 : -1) : av < bv ? 1 : -1;
+    });
+  }, [data, sortStatus]);
+
+  const [qrOpen, setQrOpen] = useState<Invite | null>(null);
 
   return (
     <>
+      <QRCodeModal
+        opened={!!qrOpen}
+        onClose={() => setQrOpen(null)}
+        url={qrOpen ? `/invite/${qrOpen.code}` : ''}
+      />
+
       <Box my='sm'>
         <DataTable
           borderRadius='sm'
@@ -103,6 +108,16 @@ export default function InviteTableView() {
                       }}
                     >
                       <IconCopy size='1rem' />
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label='Show QR code'>
+                    <ActionIcon
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQrOpen(invite);
+                      }}
+                    >
+                      <IconQrcode size='1rem' />
                     </ActionIcon>
                   </Tooltip>
                   <Tooltip label='Delete invite'>

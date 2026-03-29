@@ -33,6 +33,7 @@ export const rawConfig: any = {
     maxViewsInterval: undefined,
     thumbnailsInterval: undefined,
     metricsInterval: undefined,
+    cleanThumbnailsInterval: undefined,
   },
   files: {
     route: undefined,
@@ -47,6 +48,7 @@ export const rawConfig: any = {
     randomWordsNumAdjectives: undefined,
     randomWordsSeparator: undefined,
     defaultCompressionFormat: undefined,
+    maxFilesPerUpload: undefined,
   },
   urls: {
     route: undefined,
@@ -96,7 +98,11 @@ export const rawConfig: any = {
       enabled: undefined,
       issuer: undefined,
     },
-    passkeys: undefined,
+    passkeys: {
+      enabled: undefined,
+      rpID: undefined,
+      origin: undefined,
+    },
   },
   oauth: {
     bypassLocalLogin: undefined,
@@ -132,10 +138,6 @@ export const rawConfig: any = {
   httpWebhook: {
     onUpload: undefined,
     onShorten: undefined,
-  },
-  ssl: {
-    key: undefined,
-    cert: undefined,
   },
   pwa: {
     enabled: undefined,

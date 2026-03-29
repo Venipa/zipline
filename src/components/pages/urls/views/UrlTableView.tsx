@@ -3,15 +3,16 @@ import { Response } from '@/lib/api/response';
 import { Url } from '@/lib/db/models/url';
 import { ActionIcon, Anchor, Box, Checkbox, Group, TextInput, Tooltip } from '@mantine/core';
 import { DataTable, DataTableSortStatus } from 'mantine-datatable';
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import useSWR from 'swr';
 import { copyUrl, deleteUrl } from '../actions';
-import { IconCopy, IconPencil, IconTrashFilled } from '@tabler/icons-react';
+import { IconCopy, IconPencil, IconQrcode, IconTrashFilled } from '@tabler/icons-react';
 import { useConfig } from '@/components/ConfigProvider';
 import { useClipboard } from '@mantine/hooks';
-import { useSettingsStore } from '@/lib/store/settings';
+import { useSettingsStore } from '@/lib/client/store/settings';
 import { formatRootUrl, trimUrl } from '@/lib/url';
 import EditUrlModal from '../EditUrlModal';
+import QRCodeModal from '@/components/QRCodeModal';
 
 const NAMES = {
   code: 'Code',
@@ -112,27 +113,23 @@ export default function UrlTableView() {
     columnAccessor: 'createdAt',
     direction: 'desc',
   });
-  const [sorted, setSorted] = useState<Url[]>(data ?? []);
 
   const [selectedUrl, setSelectedUrl] = useState<Url | null>(null);
 
-  useEffect(() => {
-    if (data) {
-      const sorted = data.sort((a, b) => {
-        const cl = sortStatus.columnAccessor as keyof Url;
+  const sorted = useMemo<Url[]>(() => {
+    if (!data) return [];
 
-        return sortStatus.direction === 'asc' ? (a[cl]! > b[cl]! ? 1 : -1) : a[cl]! < b[cl]! ? 1 : -1;
-      });
+    const { columnAccessor, direction } = sortStatus;
+    const key = columnAccessor as keyof Url;
 
-      setSorted(sorted);
-    }
-  }, [sortStatus]);
+    return [...data].sort((a, b) => {
+      const av = a[key]!;
+      const bv = b[key]!;
 
-  useEffect(() => {
-    if (data) {
-      setSorted(data);
-    }
-  }, [data]);
+      if (av === bv) return 0;
+      return direction === 'asc' ? (av > bv ? 1 : -1) : av < bv ? 1 : -1;
+    });
+  }, [data, sortStatus]);
 
   useEffect(() => {
     for (const field of ['code', 'vanity', 'destination'] as const) {
@@ -145,9 +142,16 @@ export default function UrlTableView() {
     }
   }, [searchField]);
 
+  const [qrOpen, setQrOpen] = useState<Url | null>(null);
+
   return (
     <>
-      <EditUrlModal url={selectedUrl} onClose={() => setSelectedUrl(null)} open={!!selectedUrl} />
+      <EditUrlModal url={selectedUrl} onClose={() => setSelectedUrl(null)} />
+      <QRCodeModal
+        url={qrOpen ? formatRootUrl(config.urls.route, qrOpen.vanity ?? qrOpen.code) : ''}
+        opened={!!qrOpen}
+        onClose={() => setQrOpen(null)}
+      />
 
       <Box my='sm'>
         <DataTable
@@ -168,11 +172,14 @@ export default function UrlTableView() {
                 />
               ),
               filtering: searchField === 'code' && searchQuery.code.trim() !== '',
-              render: (url) => (
-                <Anchor href={formatRootUrl(config.urls.route, url.code)} target='_blank'>
-                  {url.code}
-                </Anchor>
-              ),
+              render: (url) =>
+                url.enabled ? (
+                  <Anchor href={formatRootUrl(config.urls.route, url.code)} target='_blank'>
+                    {url.code}
+                  </Anchor>
+                ) : (
+                  url.code
+                ),
             },
             {
               accessor: 'vanity',
@@ -188,9 +195,13 @@ export default function UrlTableView() {
               filtering: searchField === 'vanity' && searchQuery.vanity.trim() !== '',
               render: (url) =>
                 url.vanity ? (
-                  <Anchor href={formatRootUrl(config.urls.route, url.vanity)} target='_blank'>
-                    {url.vanity}
-                  </Anchor>
+                  url.enabled ? (
+                    <Anchor href={formatRootUrl(config.urls.route, url.vanity)} target='_blank'>
+                      {url.vanity}
+                    </Anchor>
+                  ) : (
+                    url.vanity
+                  )
                 ) : (
                   ''
                 ),
@@ -247,6 +258,16 @@ export default function UrlTableView() {
                       }}
                     >
                       <IconCopy size='1rem' />
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label='Show QR Code'>
+                    <ActionIcon
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setQrOpen(url);
+                      }}
+                    >
+                      <IconQrcode size='1rem' />
                     </ActionIcon>
                   </Tooltip>
                   <Tooltip label='Edit URL'>

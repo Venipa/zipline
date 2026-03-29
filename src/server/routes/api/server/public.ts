@@ -1,106 +1,116 @@
 import { config } from '@/lib/config';
-import { Config } from '@/lib/config/validate';
+import { schema as configSchema } from '@/lib/config/validate';
 import { getZipline } from '@/lib/db/models/zipline';
-import { log } from '@/lib/logger';
 import enabled from '@/lib/oauth/enabled';
-import fastifyPlugin from 'fastify-plugin';
-import { readFile } from 'fs/promises';
+import { isTruthy } from '@/lib/primitive';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
-export type ApiServerPublicResponse = {
-  oauth: {
-    bypassLocalLogin: boolean;
-    loginOnly: boolean;
-  };
-  oauthEnabled: {
-    discord: boolean;
-    github: boolean;
-    google: boolean;
-    oidc: boolean;
-  };
-  website: {
-    loginBackground?: string | null;
-    loginBackgroundBlur?: boolean;
-    title?: string;
-    tos: boolean;
-  };
-  features: {
-    oauthRegistration: boolean;
-    userRegistration: boolean;
-    metrics?: {
-      adminOnly?: boolean;
-    };
-  };
-  mfa: {
-    passkeys: boolean;
-  };
-  tos?: string | null;
-  files: {
-    maxFileSize: string;
-    defaultFormat: Config['files']['defaultFormat'];
-  };
-  chunks: Config['chunks'];
-  firstSetup: boolean;
-  domains?: string[];
-};
+export type ApiServerPublicResponse = z.infer<typeof publicConfigSchema>;
 
-const logger = log('api').c('server').c('public');
-
-let tosCache: string | null = null;
+const publicConfigSchema = z.object({
+  oauth: z.object({
+    bypassLocalLogin: z.boolean(),
+    loginOnly: z.boolean(),
+  }),
+  oauthEnabled: z.object({
+    discord: z.boolean(),
+    github: z.boolean(),
+    google: z.boolean(),
+    oidc: z.boolean(),
+  }),
+  website: z.object({
+    loginBackground: z.string().nullable().optional(),
+    loginBackgroundBlur: z.boolean().optional(),
+    title: z.string().optional(),
+    tos: z.boolean(),
+  }),
+  features: z.object({
+    oauthRegistration: z.boolean(),
+    userRegistration: z.boolean(),
+    metrics: z
+      .object({
+        adminOnly: z.boolean().optional(),
+      })
+      .optional(),
+  }),
+  mfa: z.object({
+    passkeys: z.boolean(),
+  }),
+  tos: z.string().nullable().optional(),
+  files: z.object({
+    maxFileSize: z.string(),
+    defaultFormat: configSchema.shape.files.shape.defaultFormat,
+    maxExpiration: z.string().nullable().optional(),
+  }),
+  chunks: configSchema.shape.chunks,
+  firstSetup: z.boolean(),
+  domains: z.array(z.string()).optional(),
+  returnHttps: z.boolean(),
+});
 
 export const PATH = '/api/server/public';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Body: Body }>(PATH, async (req, res) => {
-      const zipline = await getZipline();
+export default typedPlugin(
+  async (server) => {
+    server.get<{ Body: Body }>(
+      PATH,
+      {
+        schema: {
+          description:
+            'Return the public Zipline configuration used by the client, including OAuth, website, feature, file and chunk settings.',
+          response: {
+            200: publicConfigSchema.describe('the public configuration for the Zipline instance'),
+          },
+        },
+      },
+      async (_, res) => {
+        const zipline = await getZipline();
 
-      const response: ApiServerPublicResponse = {
-        oauth: {
-          bypassLocalLogin: config.oauth.bypassLocalLogin,
-          loginOnly: config.oauth.loginOnly,
-        },
-        oauthEnabled: enabled(config),
-        website: {
-          loginBackground: config.website.loginBackground,
-          loginBackgroundBlur: config.website.loginBackgroundBlur,
-          title: config.website.title,
-          tos: config.website.tos !== undefined,
-        },
-        features: {
-          oauthRegistration: config.features.oauthRegistration,
-          userRegistration: config.features.userRegistration,
-        },
-        mfa: {
-          passkeys: config.mfa.passkeys,
-        },
-        files: {
-          maxFileSize: config.files.maxFileSize,
-          defaultFormat: config.files.defaultFormat,
-        },
-        chunks: config.chunks,
-        firstSetup: zipline.firstSetup,
-        domains: config.domains,
-      };
+        const response: ApiServerPublicResponse = {
+          oauth: {
+            bypassLocalLogin: config.oauth.bypassLocalLogin,
+            loginOnly: config.oauth.loginOnly,
+          },
+          oauthEnabled: enabled(config),
+          website: {
+            loginBackground: config.website.loginBackground,
+            loginBackgroundBlur: config.website.loginBackgroundBlur,
+            title: config.website.title,
+            tos: config.website.tos !== undefined,
+          },
+          features: {
+            oauthRegistration: config.features.oauthRegistration,
+            userRegistration: config.features.userRegistration,
+          },
+          mfa: {
+            passkeys: isTruthy(
+              config.mfa.passkeys.enabled,
+              config.mfa.passkeys.rpID,
+              config.mfa.passkeys.origin,
+            ),
+          },
+          files: {
+            maxFileSize: config.files.maxFileSize,
+            defaultFormat: config.files.defaultFormat,
+            maxExpiration: config.files.maxExpiration,
+          },
+          chunks: config.chunks,
+          firstSetup: zipline.firstSetup,
+          domains: config.domains,
+          returnHttps: config.core.returnHttpsUrls,
+        };
 
-      if (config.features.metrics.adminOnly) {
-        response.features.metrics = { adminOnly: true };
-      }
-
-      if (config.website.tos) {
-        try {
-          if (tosCache === null) {
-            const tos = await readFile(config.website.tos, 'utf8');
-            tosCache = tos;
-          }
-          response.tos = tosCache;
-        } catch {
-          response.tos = null;
+        if (config.features.metrics.adminOnly) {
+          response.features.metrics = { adminOnly: true };
         }
-      }
 
-      return res.send(response);
-    });
+        if (config.website.tos) {
+          response.tos = global.__cachedConfigValues__.tos!;
+        }
 
-    done();
+        return res.send(response);
+      },
+    );
   },
   { name: PATH },
 );

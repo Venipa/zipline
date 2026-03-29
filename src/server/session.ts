@@ -1,3 +1,4 @@
+import { detectClient, ZiplineClient } from '@/lib/api/detect';
 import { config } from '@/lib/config';
 import { prisma } from '@/lib/db';
 import { randomCharacters } from '@/lib/random';
@@ -5,48 +6,43 @@ import { FastifyReply, FastifyRequest } from 'fastify';
 import { IncomingMessage, ServerResponse } from 'http';
 import { getIronSession, type SessionOptions } from 'iron-session';
 
-const cookieOptions: SessionOptions['cookieOptions'] = {
+const cookieOptions: NonNullable<SessionOptions['cookieOptions']> = {
   // 2 weeks
   maxAge: 60 * 60 * 24 * 14,
   expires: new Date(Date.now() + 60 * 60 * 24 * 14 * 1000),
   path: '/',
   sameSite: 'lax',
-  httpOnly: false,
-  secure: false,
+  httpOnly: true,
+  // secure is set in below session functions based on config
 };
 
 export type ZiplineSession = {
   id: string | null;
   sessionId: string | null;
+  client: ZiplineClient;
 };
 
 export async function getSession(
   req: FastifyRequest | IncomingMessage,
   reply: FastifyReply | ServerResponse<IncomingMessage>,
 ) {
-  if (!(req as any).raw || !(req as any).raw) {
-    const session = await getIronSession<ZiplineSession>(
-      req as IncomingMessage,
-      reply as ServerResponse<IncomingMessage>,
-      {
-        password: config.core.secret,
-        cookieName: 'zipline_session',
-        cookieOptions,
-      },
-    );
+  cookieOptions.secure = config.core.returnHttpsUrls;
 
-    return session;
-  }
+  const rawReq = (req as FastifyRequest).raw || req;
+  const rawRes = (reply as FastifyReply).raw || reply;
 
   const session = await getIronSession<ZiplineSession>(
-    (req as FastifyRequest).raw,
-    (reply as FastifyReply).raw,
+    rawReq as IncomingMessage,
+    rawRes as ServerResponse<IncomingMessage>,
     {
       password: config.core.secret,
       cookieName: 'zipline_session',
       cookieOptions,
     },
   );
+
+  const headers = (req as FastifyRequest).headers || (req as IncomingMessage).headers;
+  session.client = detectClient(<Record<string, string>>headers);
 
   return session;
 }
@@ -56,18 +52,53 @@ export async function saveSession(
   user: { id: string } & Record<string, any>,
   overwriteSessions = true,
 ) {
+  cookieOptions.secure = config.core.returnHttpsUrls;
+
   session.id = user.id;
+
+  if (!session.client) {
+    session.client = {
+      client: 'unknown',
+      device: 'unknown',
+      ua: 'unknown',
+    };
+  }
 
   if (overwriteSessions || !session.sessionId) {
     const sessionId = randomCharacters(32);
     session.sessionId = sessionId;
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        sessions: overwriteSessions ? { set: [sessionId] } : { push: sessionId },
-      },
-    });
+    if (overwriteSessions) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          sessions: {
+            set: [
+              {
+                id: sessionId,
+                client: session.client.client,
+                device: session.client.device,
+                ua: session.client.ua,
+              },
+            ],
+          },
+        },
+      });
+    } else {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          sessions: {
+            create: {
+              id: sessionId,
+              client: session.client.client,
+              device: session.client.device,
+              ua: session.client.ua,
+            },
+          },
+        },
+      });
+    }
   }
 
   await session.save();

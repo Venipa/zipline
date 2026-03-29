@@ -9,10 +9,12 @@ import fastifyStatic from '@fastify/static';
 import { renderHtml } from '@/lib/ssr/renderHtml';
 import { readThemes } from '@/lib/theme/file';
 import { ZIPLINE_SSR_INSERT, ZIPLINE_SSR_META } from '@/lib/ssr/constants';
+import { log } from '@/lib/logger';
 
 export const ALL_METHODS: HTTPMethods[] = ['DELETE', 'GET', 'HEAD', 'PATCH', 'POST', 'PUT'];
 
 const MODE = process.env.NODE_ENV || 'development';
+const logger = log('server').c('plugin').c('vite');
 
 async function vitePlugin(fastify: FastifyInstance) {
   fastify.decorateReply('ssr', ssrRoute);
@@ -29,23 +31,25 @@ async function vitePlugin(fastify: FastifyInstance) {
   } else {
     const vite = await createServer();
 
-    console.log('Vite server created in development mode');
+    logger.info('Vite initialized', { mode: MODE });
 
     fastify.decorate('vite', vite);
-    fastify.addHook('onRequest', async (req, reply) => {
+    fastify.addHook('preHandler', async (req, reply) => {
       const url = req.raw.url || '';
 
       const reserved = [
-        ...reservedRoutes.filter((x) => x !== '/dashboard' && x !== '/auth'),
+        ...reservedRoutes.filter((x) => x !== '/dashboard' && x !== '/auth' && x !== '/r'),
         config.files.route,
         config.urls.route,
-      ].some((route) => url.startsWith(route));
+      ]
+        .filter((url) => url.trim() !== '/')
+        .some((route) => url.startsWith(route));
 
-      if (reserved) {
-        return;
-      }
+      if (reserved) return;
 
-      await new Promise<void>((resolve, reject) => {
+      reply.hijack();
+
+      return new Promise<void>((resolve, reject) => {
         vite!.middlewares(req.raw, reply.raw, (err: any) => {
           if (err) reject(err);
           else resolve();

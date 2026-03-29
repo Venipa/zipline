@@ -3,9 +3,9 @@ import { config } from '@/lib/config';
 import { encrypt } from '@/lib/crypto';
 import Logger from '@/lib/logger';
 import enabled from '@/lib/oauth/enabled';
-import { googleAuth } from '@/lib/oauth/providerUtil';
+import { googleAuth } from '@/lib/oauth/providers';
 import { OAuthQuery, OAuthResponse } from '@/server/plugins/oauth';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
 
 async function googleOauth({ code, host, state }: OAuthQuery, logger: Logger): Promise<OAuthResponse> {
   if (!config.features.oauthRegistration)
@@ -86,13 +86,11 @@ async function googleOauth({ code, host, state }: OAuthQuery, logger: Logger): P
 }
 
 export const PATH = '/api/auth/oauth/google';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     server.get(PATH, async (req, res) => {
       return req.oauthHandle(res, 'GOOGLE', googleOauth);
     });
-
-    done();
   },
   { name: PATH },
 );

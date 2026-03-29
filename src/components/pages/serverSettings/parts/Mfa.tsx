@@ -17,7 +17,9 @@ export default function Mfa({
     initialValues: {
       mfaTotpEnabled: false,
       mfaTotpIssuer: 'Zipline',
-      mfaPasskeys: false,
+      mfaPasskeysEnabled: false,
+      mfaPasskeysRpID: '',
+      mfaPasskeysOrigin: '',
     },
     enhanceGetInputProps: (payload) => ({
       disabled: data?.tampered?.includes(payload.field) || false,
@@ -32,7 +34,9 @@ export default function Mfa({
     form.setValues({
       mfaTotpEnabled: data.settings.mfaTotpEnabled ?? false,
       mfaTotpIssuer: data.settings.mfaTotpIssuer ?? 'Zipline',
-      mfaPasskeys: data.settings.mfaPasskeys,
+      mfaPasskeysEnabled: data.settings.mfaPasskeysEnabled ?? false,
+      mfaPasskeysRpID: data.settings.mfaPasskeysRpID ?? '',
+      mfaPasskeysOrigin: data.settings.mfaPasskeysOrigin ?? '',
     });
   }, [data]);
 
@@ -47,7 +51,21 @@ export default function Mfa({
           <Switch
             label='Passkeys'
             description='Enable the use of passwordless login with the use of WebAuthn passkeys like your phone, security keys, etc.'
-            {...form.getInputProps('mfaPasskeys', { type: 'checkbox' })}
+            {...form.getInputProps('mfaPasskeysEnabled', { type: 'checkbox' })}
+          />
+
+          <TextInput
+            label='Relying Party ID'
+            description='The Relying Party ID (RP ID) to use for WebAuthn passkeys.'
+            placeholder='example.com'
+            {...form.getInputProps('mfaPasskeysRpID')}
+          />
+
+          <TextInput
+            label='Origin'
+            description='The Origin to use for WebAuthn passkeys.'
+            placeholder='https://example.com'
+            {...form.getInputProps('mfaPasskeysOrigin')}
           />
 
           <Switch

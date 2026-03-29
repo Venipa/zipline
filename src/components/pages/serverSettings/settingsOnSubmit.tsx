@@ -1,5 +1,3 @@
-import React from 'react';
-
 import { Response } from '@/lib/api/response';
 import { fetchApi } from '@/lib/fetchApi';
 import { showNotification } from '@mantine/notifications';
@@ -32,6 +30,8 @@ export function settingsOnSubmit(navigate: NavigateFunction, form: ReturnType<ty
           }
         }
       }
+
+      return error;
     } else {
       showNotification({
         message: 'Settings saved',
@@ -39,7 +39,6 @@ export function settingsOnSubmit(navigate: NavigateFunction, form: ReturnType<ty
         icon: <IconDeviceFloppy size='1rem' />,
       });
 
-      await fetch('/reload');
       mutate('/api/server/settings', data);
       mutate('/api/server/settings/web');
       mutate('/api/server/public');

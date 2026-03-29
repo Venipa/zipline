@@ -1,4 +1,4 @@
-import { FieldSettings, useFileTableSettingsStore } from '@/lib/store/fileTableSettings';
+import { FieldSettings, NAMES, useFileTableSettingsStore } from '@/lib/client/store/fileTableSettings';
 import {
   closestCenter,
   DndContext,
@@ -13,17 +13,6 @@ import { CSS } from '@dnd-kit/utilities';
 import { Button, Checkbox, Group, Modal, Paper, Text } from '@mantine/core';
 import { IconGripVertical } from '@tabler/icons-react';
 import { useShallow } from 'zustand/shallow';
-
-export const NAMES = {
-  name: 'Name',
-  originalName: 'Original Name',
-  tags: 'Tags',
-  type: 'Type',
-  size: 'Size',
-  createdAt: 'Created At',
-  favorite: 'Favorite',
-  views: 'Views',
-};
 
 function SortableTableField({ item }: { item: FieldSettings }) {
   const setVisible = useFileTableSettingsStore((state) => state.setVisible);
@@ -53,7 +42,7 @@ function SortableTableField({ item }: { item: FieldSettings }) {
   );
 }
 
-export default function TableEditModal({ opened, onCLose }: { opened: boolean; onCLose: () => void }) {
+export default function TableEditModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
   const [fields, setIndex, reset] = useFileTableSettingsStore(
     useShallow((state) => [state.fields, state.setIndex, state.reset]),
   );
@@ -73,7 +62,7 @@ export default function TableEditModal({ opened, onCLose }: { opened: boolean; o
   };
 
   return (
-    <Modal opened={opened} onClose={onCLose} title='Table Options' centered>
+    <Modal opened={opened} onClose={onClose} title='Table Options' centered>
       <Text mb='md' size='sm' c='dimmed'>
         Select and drag fields below to make them appear/disappear/reorder in the file table view.
       </Text>

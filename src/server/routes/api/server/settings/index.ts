@@ -1,15 +1,18 @@
+import { ApiError } from '@/lib/api/errors';
 import { bytes } from '@/lib/bytes';
 import { checkOutput, COMPRESS_TYPES } from '@/lib/compress';
 import { reloadSettings } from '@/lib/config';
 import type { readDatabaseSettings } from '@/lib/config/read/db';
 import { safeConfig } from '@/lib/config/safe';
+import { MAX_SAFE_TIMEOUT_MS } from '@/lib/config/validate';
 import { prisma } from '@/lib/db';
 import { log } from '@/lib/logger';
 import { secondlyRatelimit } from '@/lib/ratelimits';
 import { readThemes } from '@/lib/theme/file';
+import { zStringTrimmed } from '@/lib/validation';
 import { administratorMiddleware } from '@/server/middleware/administrator';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
 import { statSync } from 'fs';
 import ms, { StringValue } from 'ms';
 import { cpus } from 'os';
@@ -23,13 +26,12 @@ export type ApiServerSettingsWebResponse = {
   config: ReturnType<typeof safeConfig>;
   codeMap: { ext: string; mime: string; name: string }[];
 };
-type Body = Partial<Settings>;
-
 export const reservedRoutes = [
   '/dashboard',
   '/auth',
   '/api',
   '/raw',
+  '/r',
   '/invite',
   '/view',
   '/robots.txt',
@@ -37,8 +39,26 @@ export const reservedRoutes = [
   '/favicon.ico',
 ];
 
-const zMs = z.string().refine((value) => ms(value as StringValue) > 0, 'Value must be greater than 0');
-const zBytes = z.string().refine((value) => bytes(value) > 0, 'Value must be greater than 0');
+const jsonTransform = (value: any, ctx: z.RefinementCtx) => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'Invalid JSON' });
+    return z.NEVER;
+  }
+};
+
+const zMs = zStringTrimmed.refine(
+  (value) => ms((value ?? '0') as StringValue) > 0,
+  'Value must be greater than 0',
+);
+const zBytes = zStringTrimmed.refine((value) => bytes(value) > 0, 'Value must be greater than 0');
+
+const zIntervalMs = zMs.refine(
+  (value) => ms(value as StringValue) <= MAX_SAFE_TIMEOUT_MS,
+  `Value must be less than or equal to ${MAX_SAFE_TIMEOUT_MS}ms`,
+);
 
 const discordEmbed = z
   .union([
@@ -61,7 +81,7 @@ const discordEmbed = z
     z.string(),
   ])
   .nullable()
-  .transform((value) => (typeof value === 'string' ? JSON.parse(value) : value))
+  .transform(jsonTransform)
   .transform((value) =>
     typeof value === 'object' ? (Object.keys(value || {}).length ? value : null) : value,
   );
@@ -69,11 +89,22 @@ const discordEmbed = z
 const logger = log('api').c('server').c('settings');
 
 export const PATH = '/api/server/settings';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Body: Body }>(
+export default typedPlugin(
+  async (server) => {
+    server.get(
       PATH,
       {
+        schema: {
+          description:
+            'Fetch the full Zipline server settings row along with a list of configuration keys that were overridden at runtime (admin only).',
+          response: {
+            200: z.object({
+              settings: z.custom<Settings>(),
+              tampered: z.array(z.string()),
+            }),
+          },
+          tags: ['auth', 'admin'],
+        },
         preHandler: [userMiddleware, administratorMiddleware],
       },
       async (_, res) => {
@@ -86,21 +117,30 @@ export default fastifyPlugin(
           },
         });
 
-        if (!settings) return res.notFound('no settings table found');
+        if (!settings) throw new ApiError(4010);
 
         return res.send({ settings, tampered: global.__tamperedConfig__ || [] });
       },
     );
 
-    server.patch<{ Body: Body }>(
+    server.patch(
       PATH,
       {
+        schema: {
+          description:
+            'Partially update Zipline server settings using a validated subset of configuration keys (admin only).',
+          body: z.custom<Partial<Settings>>(),
+          response: {
+            200: z.custom<ApiServerSettingsResponse>(),
+          },
+          tags: ['auth', 'admin'],
+        },
         preHandler: [userMiddleware, administratorMiddleware],
         ...secondlyRatelimit(1),
       },
       async (req, res) => {
         const settings = await prisma.zipline.findFirst();
-        if (!settings) return res.notFound('no settings table found');
+        if (!settings) throw new ApiError(4010);
 
         const themes = (await readThemes()).map((x) => x.id);
 
@@ -124,11 +164,12 @@ export default fastifyPlugin(
             chunksMax: zBytes,
             chunksSize: zBytes,
 
-            tasksDeleteInterval: zMs,
-            tasksClearInvitesInterval: zMs,
-            tasksMaxViewsInterval: zMs,
-            tasksThumbnailsInterval: zMs,
-            tasksMetricsInterval: zMs,
+            tasksDeleteInterval: zIntervalMs,
+            tasksClearInvitesInterval: zIntervalMs,
+            tasksMaxViewsInterval: zIntervalMs,
+            tasksThumbnailsInterval: zIntervalMs,
+            tasksMetricsInterval: zIntervalMs,
+            tasksCleanThumbnailsInterval: zIntervalMs,
 
             filesRoute: z
               .string()
@@ -150,6 +191,7 @@ export default fastifyPlugin(
             filesMaxFileSize: zBytes,
 
             filesDefaultExpiration: zMs.nullable(),
+            filesMaxExpiration: zMs.nullable(),
             filesAssumeMimetypes: z.boolean(),
             filesDefaultDateFormat: z.string(),
             filesRemoveGpsMetadata: z.boolean(),
@@ -158,6 +200,7 @@ export default fastifyPlugin(
             filesDefaultCompressionFormat: z
               .enum(COMPRESS_TYPES)
               .refine((v) => checkOutput(v), 'System does not support outputting this image format.'),
+            filesMaxFilesPerUpload: z.number().min(1).max(2147483647),
 
             urlsRoute: z
               .string()
@@ -207,7 +250,7 @@ export default fastifyPlugin(
                 ),
                 z.string(),
               ])
-              .transform((value) => (typeof value === 'string' ? JSON.parse(value) : value)),
+              .transform(jsonTransform),
             websiteLoginBackground: z.url().nullable(),
             websiteLoginBackgroundBlur: z.boolean(),
             websiteDefaultAvatar: z
@@ -281,7 +324,18 @@ export default fastifyPlugin(
 
             mfaTotpEnabled: z.boolean(),
             mfaTotpIssuer: z.string(),
-            mfaPasskeys: z.boolean(),
+
+            mfaPasskeysEnabled: z.boolean(),
+            mfaPasskeysRpID: z
+              .string()
+              .trim()
+              .transform((v) => (v.length === 0 ? null : v))
+              .nullable(),
+            mfaPasskeysOrigin: z
+              .string()
+              .trim()
+              .transform((v) => (v.length === 0 ? null : v))
+              .nullable(),
 
             ratelimitEnabled: z.boolean(),
             ratelimitMax: z.number().refine((value) => value > 0, 'Value must be greater than 0'),
@@ -383,6 +437,43 @@ export default fastifyPlugin(
           .refine((data) => !data.ratelimitWindow || (data.ratelimitMax && data.ratelimitMax > 0), {
             message: 'ratelimitMax must be set if ratelimitWindow is set',
             path: ['ratelimitMax'],
+          })
+          .superRefine((data, ctx) => {
+            if (!data.filesDefaultExpiration || !data.filesMaxExpiration) return;
+
+            const def = ms(data.filesDefaultExpiration as StringValue);
+            const max = ms(data.filesMaxExpiration as StringValue);
+
+            if (def > max) {
+              ctx.addIssue({
+                code: 'custom',
+                message: 'filesDefaultExpiration must be less than or equal to filesMaxExpiration',
+                path: ['filesDefaultExpiration'],
+              });
+            }
+          })
+          .superRefine((data, ctx) => {
+            if (data.mfaPasskeysEnabled) {
+              if (!data.mfaPasskeysRpID || data.mfaPasskeysRpID.length === 0) {
+                ctx.addIssue({
+                  path: ['mfaPasskeysRpID'],
+                  message: 'RP ID is required when passkeys are enabled',
+                  code: 'custom',
+                });
+              }
+
+              if (!data.mfaPasskeysOrigin || data.mfaPasskeysOrigin.length === 0) {
+                ctx.addIssue({
+                  path: ['mfaPasskeysOrigin'],
+                  message: 'Origin is required when passkeys are enabled',
+                  code: 'custom',
+                });
+              }
+            }
+          })
+
+          .refine((data) => Object.keys(data).length > 0, {
+            message: 'No settings provided to update',
           });
 
         const result = settingsBodySchema.safeParse(req.body);
@@ -391,10 +482,7 @@ export default fastifyPlugin(
             issues: result.error.issues,
           });
 
-          return res.status(400).send({
-            statusCode: 400,
-            issues: result.error.issues,
-          });
+          throw new ApiError(1022).add('issues', result.error.issues);
         }
 
         const newSettings = await prisma.zipline.update({
@@ -423,8 +511,6 @@ export default fastifyPlugin(
         return res.send({ settings: newSettings, tampered: global.__tamperedConfig__ || [] });
       },
     );
-
-    done();
   },
   { name: PATH },
 );

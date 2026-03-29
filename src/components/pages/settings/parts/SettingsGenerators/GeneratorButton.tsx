@@ -13,7 +13,7 @@ import {
   Text,
 } from '@mantine/core';
 import { IconDownload, IconEyeFilled, IconGlobe, IconPercentage, IconWriting } from '@tabler/icons-react';
-import React, { useReducer, useState } from 'react';
+import { useReducer, useState } from 'react';
 import useSWR from 'swr';
 import { flameshot } from './generators/flameshot';
 import { sharex } from './generators/sharex';
@@ -104,14 +104,12 @@ export default function GeneratorButton({
   );
 
   const { data: tokenData, isLoading, error } = useSWR<Response['/api/user/token']>('/api/user/token');
-  const { data: settingsData } = useSWR<Response['/api/server/settings']>('/api/server/settings');
+  const { data: settingsData } = useSWR<Response['/api/server/public']>('/api/server/public');
 
   const isUnixLike = name === 'Flameshot' || name === 'Shell Script';
   const onlyFile = generatorType === 'file';
 
-  const domains = Array.isArray(settingsData?.settings.domains)
-    ? settingsData?.settings.domains.map((d) => String(d))
-    : [];
+  const domains = Array.isArray(settingsData?.domains) ? settingsData?.domains.map((d) => String(d)) : [];
   const domainOptions = [
     { value: '', label: 'Default Domain' },
     ...domains.map((domain) => ({
@@ -232,7 +230,7 @@ export default function GeneratorButton({
           {name === 'ShareX' && (
             <Switch
               label='Xshare Compatibility'
-              description='If you choose to use the Xshare app on Android, enable this option for compatibility. The genereated config will not work with ShareX.'
+              description='If you choose to use the Xshare app on Android, enable this option for compatibility. The generated config will not work with ShareX.'
               checked={options.sharex_xshareCompatibility ?? false}
               onChange={(event) => setOption({ sharex_xshareCompatibility: event.currentTarget.checked })}
               disabled={!onlyFile}

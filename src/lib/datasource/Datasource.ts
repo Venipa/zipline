@@ -1,6 +1,7 @@
 import { Readable } from 'stream';
 
 export type PutOptions = { mimetype?: string; noDelete?: boolean };
+export type ListOptions = { prefix: string };
 
 export abstract class Datasource {
   public name: string | undefined;
@@ -13,4 +14,5 @@ export abstract class Datasource {
   public abstract clear(): Promise<void>;
   public abstract range(file: string, start: number, end: number): Promise<Readable>;
   public abstract rename(from: string, to: string): Promise<void>;
+  public abstract list(options: ListOptions): Promise<string[]>;
 }

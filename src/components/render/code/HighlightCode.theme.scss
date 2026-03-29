@@ -27,6 +27,7 @@
 .theme {
   color: var(--_color);
   background: var(--_background);
+  display: block;
 
   .hljs-comment,
   .hljs-quote {

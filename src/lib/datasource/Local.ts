@@ -1,8 +1,8 @@
 import { createReadStream, existsSync } from 'fs';
 import { access, constants, copyFile, readdir, rename, rm, stat, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 import { Readable } from 'stream';
-import { Datasource, PutOptions } from './Datasource';
+import { Datasource, ListOptions, PutOptions } from './Datasource';
 
 async function existsAndCanRW(path: string): Promise<boolean> {
   try {
@@ -20,17 +20,29 @@ export class LocalDatasource extends Datasource {
     super();
   }
 
+  private resolvePath(file: string): string | void {
+    const resolved = resolve(this.dir, file);
+    const uploadsDir = resolve(this.dir);
+
+    if (!resolved.startsWith(uploadsDir + sep)) return;
+
+    return resolved;
+  }
+
   public get(file: string): Readable | null {
-    const path = join(this.dir, file);
+    const path = this.resolvePath(file);
+    if (!path) return null;
     if (!existsSync(path)) return null;
 
     const readStream = createReadStream(path);
-
     return readStream;
   }
 
   public async put(file: string, data: Buffer | string, { noDelete }: PutOptions): Promise<void> {
-    const path = join(this.dir, file);
+    const path = this.resolvePath(file);
+    if (!path) {
+      throw new Error('Invalid path provided');
+    }
 
     // handles if given a path to a file, it will just move it instead of doing unecessary writes
     if (typeof data === 'string' && data.startsWith('/')) {
@@ -100,5 +112,11 @@ export class LocalDatasource extends Datasource {
       throw new Error(`Something went very wrong! File ${from} does not exist in local datasource.`);
 
     return rename(fromPath, toPath);
+  }
+
+  public async list(options: ListOptions = { prefix: '' }): Promise<string[]> {
+    const files = await readdir(this.dir, { withFileTypes: true });
+
+    return files.filter((f) => f.isFile() && f.name.startsWith(options.prefix || '')).map((f) => f.name);
   }
 }

@@ -1,46 +1,43 @@
+import RelativeDate from '@/components/RelativeDate';
 import { Response } from '@/lib/api/response';
+import { useUserStore } from '@/lib/client/store/user';
 import { User } from '@/lib/db/models/user';
+import { canInteract, roleName } from '@/lib/role';
 import { ActionIcon, Avatar, Box, Group, Tooltip } from '@mantine/core';
 import { IconEdit, IconFiles, IconTrashFilled } from '@tabler/icons-react';
 import { DataTable, DataTableSortStatus } from 'mantine-datatable';
-import { useEffect, useState } from 'react';
-import useSWR from 'swr';
-import EditUserModal from '../EditUserModal';
-import RelativeDate from '@/components/RelativeDate';
-import { canInteract, roleName } from '@/lib/role';
-import { useUserStore } from '@/lib/store/user';
-import { deleteUser } from '../actions';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import useSWR from 'swr';
+import { deleteUser } from '../actions';
+import EditUserModal from '../EditUserModal';
 
 export default function UserTableView() {
   const currentUser = useUserStore((state) => state.user);
 
   const { data, isLoading } = useSWR<Extract<Response['/api/users'], User[]>>('/api/users?noincl=true');
 
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+
   const [sortStatus, setSortStatus] = useState<DataTableSortStatus>({
     columnAccessor: 'createdAt',
     direction: 'desc',
   });
-  const [sorted, setSorted] = useState<User[]>(data ?? []);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
-  useEffect(() => {
-    if (data) {
-      const sorted = data.sort((a, b) => {
-        const cl = sortStatus.columnAccessor as keyof User;
+  const sorted = useMemo<User[]>(() => {
+    if (!data) return [];
 
-        return sortStatus.direction === 'asc' ? (a[cl]! > b[cl]! ? 1 : -1) : a[cl]! < b[cl]! ? 1 : -1;
-      });
+    const { columnAccessor, direction } = sortStatus;
+    const key = columnAccessor as keyof User;
 
-      setSorted(sorted);
-    }
-  }, [sortStatus]);
+    return [...data].sort((a, b) => {
+      const av = a[key]!;
+      const bv = b[key]!;
 
-  useEffect(() => {
-    if (data) {
-      setSorted(data);
-    }
-  }, [data]);
+      if (av === bv) return 0;
+      return direction === 'asc' ? (av > bv ? 1 : -1) : av < bv ? 1 : -1;
+    });
+  }, [data, sortStatus]);
 
   return (
     <>

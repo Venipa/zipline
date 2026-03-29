@@ -194,7 +194,7 @@ export const export3Schema = z.object({
       totp_secret: z.string().optional().nullable(),
       oauth: z.array(
         z.object({
-          provider: z.union([z.literal('DISCORD'), z.literal('GITHUB'), z.literal('GOOGLE')]),
+          provider: z.enum(['DISCORD', 'GITHUB', 'GOOGLE']),
           username: z.string(),
           oauth_id: z.string().nullable(),
           access_token: z.string().nullable(),
@@ -407,7 +407,7 @@ export const V3_SETTINGS_TRANSFORM: Record<keyof typeof V3_COMPATIBLE_SETTINGS, 
 export function validateExport(data: unknown): ReturnType<typeof export3Schema.safeParse> {
   const result = export3Schema.safeParse(data);
   if (!result.success) {
-    if (typeof window === 'object') console.error('Failed to validate export data', result.error);
+    if (typeof window === 'object') console.error('Failed to validate export3 data', result.error);
   }
 
   return result;

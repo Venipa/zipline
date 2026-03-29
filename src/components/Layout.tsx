@@ -1,11 +1,11 @@
 import type { Response } from '@/lib/api/response';
+import useAvatar from '@/lib/client/hooks/useAvatar';
+import useLogin from '@/lib/client/hooks/useLogin';
+import { useLogout } from '@/lib/client/hooks/useLogout';
+import { useUserStore } from '@/lib/client/store/user';
 import type { SafeConfig } from '@/lib/config/safe';
 import { fetchApi } from '@/lib/fetchApi';
-import useAvatar from '@/lib/hooks/useAvatar';
-import useLogin from '@/lib/hooks/useLogin';
-import { Outlet, useLocation } from 'react-router-dom';
 import { isAdministrator } from '@/lib/role';
-import { useUserStore } from '@/lib/store/user';
 import {
   AppShell,
   Avatar,
@@ -41,15 +41,16 @@ import {
   IconRefreshDot,
   IconSettingsFilled,
   IconShieldLockFilled,
+  IconStopwatch,
   IconTags,
   IconUpload,
   IconUsersGroup,
 } from '@tabler/icons-react';
 import { useState } from 'react';
+import { Link, Outlet, useLoaderData, useLocation } from 'react-router-dom';
+import { dashboardLoader } from '../client/routes';
 import ConfigProvider from './ConfigProvider';
 import VersionBadge from './VersionBadge';
-import { Link, useLoaderData } from 'react-router-dom';
-import { dashboardLoader } from '../client/routes';
 
 type NavLinks = {
   label: string;
@@ -127,6 +128,12 @@ const navLinks: NavLinks[] = [
         href: '/dashboard/admin/settings',
       },
       {
+        label: 'Actions',
+        icon: <IconStopwatch size='1rem' />,
+        active: (path: string) => path === '/dashboard/admin/actions',
+        href: '/dashboard/admin/actions',
+      },
+      {
         label: 'Users',
         icon: <IconUsersGroup size='1rem' />,
         active: (path: string) => path === '/dashboard/admin/users',
@@ -151,12 +158,19 @@ export default function Layout() {
   const clipboard = useClipboard();
   const setUser = useUserStore((s) => s.setUser);
   const location = useLocation();
+  const logout = useLogout();
 
   const loaderData = useLoaderData<typeof dashboardLoader>();
   const config = loaderData.config;
 
   const { user, mutate } = useLogin();
   const { avatar } = useAvatar();
+
+  const [prev, setPrev] = useState(location.pathname);
+  if (prev !== location.pathname) {
+    setPrev(location.pathname);
+    setOpened(false);
+  }
 
   const copyToken = () => {
     modals.openConfirmModal({
@@ -232,6 +246,7 @@ export default function Layout() {
             color={theme.colors.gray[6]}
             mr='xl'
             hiddenFrom='sm'
+            bdrs='md'
           />
 
           {config.website.titleLogo && (
@@ -297,12 +312,7 @@ export default function Layout() {
                 )}
 
                 <Menu.Divider />
-                <Menu.Item
-                  color='red'
-                  leftSection={<IconLogout size='1rem' />}
-                  component={Link}
-                  to='/auth/logout'
-                >
+                <Menu.Item color='red' leftSection={<IconLogout size='1rem' />} onClick={logout}>
                   Logout
                 </Menu.Item>
               </Menu.Dropdown>
@@ -391,7 +401,7 @@ export default function Layout() {
 
       <AppShell.Main>
         <ConfigProvider data={loaderData}>
-          <Paper m='lg' withBorder p='xs'>
+          <Paper withBorder m='md' p='xs' radius='md'>
             <Outlet />
           </Paper>
         </ConfigProvider>

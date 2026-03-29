@@ -1,51 +1,75 @@
+import { ApiError } from '@/lib/api/errors';
 import { prisma } from '@/lib/db';
 import { fileSelect } from '@/lib/db/models/file';
-import { cleanFolder, Folder } from '@/lib/db/models/folder';
-import fastifyPlugin from 'fastify-plugin';
+import { buildPublicParentChain, cleanFolder, Folder, folderSchema } from '@/lib/db/models/folder';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiServerFolderResponse = Partial<Folder>;
 
-type Params = {
-  id: string;
-};
-
-type Query = {
-  uploads?: boolean;
-};
-
 export const PATH = '/api/server/folder/:id';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Params: Params; Querystring: Query }>(PATH, async (req, res) => {
-      const { id } = req.params;
-      const { uploads } = req.query;
-
-      const folder = await prisma.folder.findUnique({
-        where: {
-          id: id,
-        },
-        include: {
-          files: {
-            select: {
-              ...fileSelect,
-              password: true,
-              tags: false,
-            },
-            orderBy: {
-              createdAt: 'desc',
-            },
+export default typedPlugin(
+  async (server) => {
+    server.get(
+      PATH,
+      {
+        schema: {
+          description: 'Fetch a folder by ID. Behavior varies based on public and allowUploads flags.',
+          params: z.object({
+            id: z.string(),
+          }),
+          response: {
+            200: folderSchema.partial(),
           },
         },
-      });
+      },
+      async (req, res) => {
+        const { id } = req.params;
 
-      if (!folder) return res.notFound();
+        const folder = await prisma.folder.findUnique({
+          where: { id },
+          include: {
+            files: {
+              select: { ...fileSelect, password: true, tags: false },
+              orderBy: { createdAt: 'desc' },
+            },
+            children: {
+              where: { public: true },
+              orderBy: { createdAt: 'desc' },
+              select: {
+                id: true,
+                name: true,
+                createdAt: true,
+                updatedAt: true,
+                public: true,
+                _count: { select: { children: true, files: true } },
+              },
+            },
+            parent: {
+              select: { id: true, name: true, public: true, parentId: true },
+            },
+          },
+        });
 
-      if ((uploads && !folder.allowUploads) || (!uploads && !folder.public)) return res.notFound();
+        if (!folder) throw new ApiError(9002);
+        if (!folder.public && !folder.allowUploads) throw new ApiError(9002);
 
-      return res.send(cleanFolder(folder, true));
-    });
+        if (!folder.public && folder.allowUploads) {
+          return res.send({
+            id: folder.id,
+            name: folder.name,
+            allowUploads: folder.allowUploads,
+            public: folder.public,
+          });
+        }
 
-    done();
+        if (folder.parentId) {
+          folder.parent = await buildPublicParentChain(folder.parentId);
+        }
+
+        return res.send(cleanFolder(folder, true));
+      },
+    );
   },
   { name: PATH },
 );

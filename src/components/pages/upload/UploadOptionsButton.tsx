@@ -1,7 +1,10 @@
 import { useConfig } from '@/components/ConfigProvider';
+import DomainSelect from '@/components/DomainSelect';
+import FolderComboboxOptions from '@/components/folders/FolderComboboxOptions';
 import { Response } from '@/lib/api/response';
-import { Folder } from '@/lib/db/models/folder';
-import { useUploadOptionsStore } from '@/lib/store/uploadOptions';
+import { buildFolderHierarchy } from '@/lib/folderHierarchy';
+import { useFolders } from '@/lib/client/hooks/useFolders';
+import { useUploadOptionsStore } from '@/lib/client/store/uploadOptions';
 import {
   Badge,
   Button,
@@ -24,23 +27,18 @@ import {
   IconEyeFilled,
   IconFileInfo,
   IconFolderPlus,
-  IconGlobe,
   IconKey,
   IconPercentage,
+  IconSettings,
   IconTrashFilled,
   IconWriting,
 } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+
+import ms from 'ms';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useSWR from 'swr';
 import { useShallow } from 'zustand/shallow';
-
-function checkDomains(domains?: unknown): string[] {
-  if (!domains) return [];
-  if (!Array.isArray(domains)) return [];
-
-  return domains;
-}
 
 export default function UploadOptionsButton({ folder, numFiles }: { folder?: string; numFiles: number }) {
   const config = useConfig();
@@ -65,30 +63,86 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
     setFolderSearch('');
   };
 
-  const { data: folders } = useSWR<Extract<Response['/api/user/folders'], Folder[]>>(
-    '/api/user/folders?noincl=true',
-  );
+  const { data: folders } = useFolders();
   const { data: settingsData } = useSWR<Response['/api/server/public']>('/api/server/public');
 
   const combobox = useCombobox();
   const [folderSearch, setFolderSearch] = useState('');
 
-  const domains = checkDomains(settingsData?.domains);
+  const folderOptions = useMemo(() => {
+    if (!folders) return [];
+    return buildFolderHierarchy(folders);
+  }, [folders]);
 
-  const domainOptions = [
-    { value: '', label: 'Default Domain' },
-    ...domains.map((domain) => ({
-      value: domain,
-      label: domain,
-    })),
-  ];
+  const expirations = useMemo(() => {
+    const opts = [
+      { value: 'default', label: `Default (${config.files.defaultExpiration ?? 'never'})` },
+      { value: 'never', label: 'Never' },
+      { value: '5min', label: '5 minutes' },
+      { value: '10min', label: '10 minutes' },
+      { value: '15min', label: '15 minutes' },
+      { value: '30min', label: '30 minutes' },
+      { value: '1h', label: '1 hour' },
+      { value: '2h', label: '2 hours' },
+      { value: '3h', label: '3 hours' },
+      { value: '4h', label: '4 hours' },
+      { value: '5h', label: '5 hours' },
+      { value: '6h', label: '6 hours' },
+      { value: '8h', label: '8 hours' },
+      { value: '12h', label: '12 hours' },
+      { value: '1d', label: '1 day' },
+      { value: '3d', label: '3 days' },
+      { value: '5d', label: '5 days' },
+      { value: '7d', label: '7 days' },
+      { value: '1w', label: '1 week' },
+      { value: '1.5w', label: '1.5 weeks' },
+      { value: '2w', label: '2 weeks' },
+      { value: '3w', label: '3 weeks' },
+      { value: '30d', label: '1 month (30 days)' },
+      { value: '45.625d', label: '1.5 months (~45 days)' },
+      { value: '60d', label: '2 months (60 days)' },
+      { value: '90d', label: '3 months (90 days)' },
+      { value: '120d', label: '4 months (120 days)' },
+      { value: '0.5 year', label: '6 months (0.5 year)' },
+      { value: '1y', label: '1 year' },
+      {
+        value: '_',
+        label: 'Need more freedom? Set an exact date and time through the API.',
+        disabled: true,
+      },
+    ];
+
+    try {
+      const maxExp = settingsData?.files?.maxExpiration ?? null;
+      if (!maxExp) return opts;
+
+      const maxMs = ms(String(maxExp) as any);
+      if (!maxMs || isNaN(Number(maxMs))) return opts;
+
+      return opts.filter((o) => {
+        if (o.value === 'default' || o.value === 'never' || o.value === '_') return true;
+        const val = String(o.value);
+        const parsed = (ms as unknown as (v: string) => number)(val);
+
+        if (!parsed || isNaN(Number(parsed))) return true;
+        return parsed <= Number(maxMs);
+      });
+    } catch {
+      return opts;
+    }
+  }, [settingsData, config.files.defaultExpiration]);
 
   useEffect(() => {
     if (folder) return;
 
+    // Set initial value
+    if (ephemeral.folderId === null) {
+      setFolderSearch('/ (Root)');
+    }
+
     useUploadOptionsStore.subscribe(
       (state) => state.ephemeral,
-      (current) => (current.folderId === null ? setFolderSearch('') : null),
+      (current) => (current.folderId === null ? setFolderSearch('/ (Root)') : null),
     );
   }, []);
 
@@ -101,42 +155,7 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
 
         <Stack gap='xs' my='sm'>
           <Select
-            data={[
-              { value: 'default', label: `Default (${config.files.defaultExpiration ?? 'never'})` },
-              { value: 'never', label: 'Never' },
-              { value: '5min', label: '5 minutes' },
-              { value: '10min', label: '10 minutes' },
-              { value: '15min', label: '15 minutes' },
-              { value: '30min', label: '30 minutes' },
-              { value: '1h', label: '1 hour' },
-              { value: '2h', label: '2 hours' },
-              { value: '3h', label: '3 hours' },
-              { value: '4h', label: '4 hours' },
-              { value: '5h', label: '5 hours' },
-              { value: '6h', label: '6 hours' },
-              { value: '8h', label: '8 hours' },
-              { value: '12h', label: '12 hours' },
-              { value: '1d', label: '1 day' },
-              { value: '3d', label: '3 days' },
-              { value: '5d', label: '5 days' },
-              { value: '7d', label: '7 days' },
-              { value: '1w', label: '1 week' },
-              { value: '1.5w', label: '1.5 weeks' },
-              { value: '2w', label: '2 weeks' },
-              { value: '3w', label: '3 weeks' },
-              { value: '30d', label: '1 month (30 days)' },
-              { value: '45.625d', label: '1.5 months (~45 days)' },
-              { value: '60d', label: '2 months (60 days)' },
-              { value: '90d', label: '3 months (90 days)' },
-              { value: '120d', label: '4 months (120 days)' },
-              { value: '0.5 year', label: '6 months (0.5 year)' },
-              { value: '1y', label: '1 year' },
-              {
-                value: '_',
-                label: 'Need more freedom? Set an exact date and time through the API.',
-                disabled: true,
-              },
-            ]}
+            data={expirations}
             label={
               <>
                 Deletes at{' '}
@@ -162,6 +181,11 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
                     {'.'}
                   </>
                 )}
+                {settingsData?.files?.maxExpiration ? (
+                  <div style={{ marginTop: 6, color: 'var(--mantine-color-dimmed)' }}>
+                    Note: maximum allowed expiration is <b>{settingsData.files.maxExpiration}</b>.
+                  </div>
+                ) : null}
               </>
             }
             leftSection={<IconAlarmFilled size='1rem' />}
@@ -288,8 +312,14 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
             store={combobox}
             withinPortal={false}
             onOptionSubmit={(value) => {
-              setFolderSearch(folders?.find((f) => f.id === value)?.name || '');
-              setEphemeral('folderId', value === 'no folder' || value === '' ? null : value);
+              if (value === '__root__') {
+                setFolderSearch('/ (Root)');
+                setEphemeral('folderId', null);
+              } else {
+                const selected = folderOptions.find((f) => f.id === value);
+                setFolderSearch(selected?.path || '');
+                setEphemeral('folderId', value);
+              }
               combobox.closeDropdown();
             }}
             disabled={!!folder}
@@ -297,7 +327,7 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
             <Combobox.Target>
               <InputBase
                 label={<>Add to a Folder</>}
-                description='Add this file to a folder. Use the "no folder" option not add the file to a folder. This value is not saved to your browser, and is cleared after uploading.'
+                description='Add this file to a folder. Use the "/ (Root)" option to not add the file to a folder. This value is not saved to your browser, and is cleared after uploading.'
                 rightSection={<Combobox.Chevron />}
                 leftSection={<IconFolderPlus size='1rem' />}
                 value={folderSearch}
@@ -306,11 +336,23 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
                   combobox.updateSelectedOptionIndex();
                   setFolderSearch(event.currentTarget.value);
                 }}
-                onClick={() => combobox.openDropdown()}
-                onFocus={() => combobox.openDropdown()}
+                onClick={() => {
+                  combobox.openDropdown();
+                  setFolderSearch('');
+                }}
+                onFocus={() => {
+                  combobox.openDropdown();
+                  setFolderSearch('');
+                }}
                 onBlur={() => {
                   combobox.closeDropdown();
-                  setFolderSearch(folderSearch || '');
+                  // Restore the selected folder path when closing
+                  if (ephemeral.folderId === null) {
+                    setFolderSearch('/ (Root)');
+                  } else {
+                    const selectedFolder = folderOptions.find((f) => f.id === ephemeral.folderId);
+                    setFolderSearch(selectedFolder?.path || '');
+                  }
                 }}
                 placeholder='Add to folder...'
                 rightSectionPointerEvents='none'
@@ -318,22 +360,15 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
             </Combobox.Target>
 
             <Combobox.Dropdown>
-              <Combobox.Options>
-                <Combobox.Option value='no folder'>No Folder</Combobox.Option>
-
-                {folders
-                  ?.filter((f) => f.name.toLowerCase().includes(folderSearch.toLowerCase().trim()))
-                  .map((f) => (
-                    <Combobox.Option value={f.id} key={f.id}>
-                      {f.name}
-                    </Combobox.Option>
-                  ))}
-              </Combobox.Options>
+              <FolderComboboxOptions
+                folderOptions={folderOptions}
+                searchValue={folderSearch}
+                additionalOptions={<Combobox.Option value='__root__'>/ (Root)</Combobox.Option>}
+              />
             </Combobox.Dropdown>
           </Combobox>
 
-          <Select
-            data={domainOptions}
+          <DomainSelect
             label={
               <>
                 Override Domain{' '}
@@ -344,8 +379,6 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
                 ) : null}
               </>
             }
-            description='Override the domain with this value. This will change the domain returned in your uploads. Leave blank to use the default domain.'
-            leftSection={<IconGlobe size='1rem' />}
             value={options.overrides_returnDomain ?? ''}
             onChange={(value) => setOption('overrides_returnDomain', value || null)}
             comboboxProps={{
@@ -434,6 +467,7 @@ export default function UploadOptionsButton({ folder, numFiles }: { folder?: str
         variant={changes() !== 0 ? 'light' : 'outline'}
         rightSection={changes() !== 0 ? <Badge variant='outline'>{changes()}</Badge> : null}
         onClick={() => setOpen(true)}
+        leftSection={<IconSettings size='1rem' />}
       >
         Options
       </Button>

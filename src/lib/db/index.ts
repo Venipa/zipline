@@ -50,7 +50,8 @@ function getClient() {
 
   process.env.DATABASE_URL = connectionString;
 
-  logger.info('connecting to database', { url: connectionString });
+  logger.info('connecting to database');
+  logger.debug('connecting to database', { url: connectionString });
 
   const adapter = new PrismaPg({ connectionString });
   const client = new PrismaClient({

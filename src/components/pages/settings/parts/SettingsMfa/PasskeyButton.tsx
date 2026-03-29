@@ -1,52 +1,80 @@
 import RelativeDate from '@/components/RelativeDate';
 import { fetchApi } from '@/lib/fetchApi';
-import { registerWeb } from '@/lib/passkey';
-import { useUserStore } from '@/lib/store/user';
-import { RegistrationResponseJSON } from '@github/webauthn-json/dist/types/browser-ponyfill';
+import useObjectState from '@/lib/client/hooks/useObjectState';
+import { useUserStore } from '@/lib/client/store/user';
+import { UserPasskey } from '@/prisma/client';
 import { ActionIcon, Button, Group, Modal, Paper, Stack, Text, TextInput } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
-import { UserPasskey } from '@/prisma/client';
+import {
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+  startRegistration,
+} from '@simplewebauthn/browser';
 import { IconKey, IconKeyOff, IconTrashFilled } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
 import { mutate } from 'swr';
 
 export default function PasskeyButton() {
   const user = useUserStore((state) => state.user);
+  const [pkData, setPkData] = useObjectState<{
+    open: boolean;
+    error: string | null;
+    loading: boolean;
 
-  const [passkeyOpen, setPasskeyOpen] = useState(false);
-  const [passkeyError, setPasskeyError] = useState<string | null>(null);
-  const [passkeyLoading, setPasskeyLoading] = useState(false);
-  const [namerShown, setNamerShown] = useState(false);
-  const [savedKey, setSavedKey] = useState<RegistrationResponseJSON | null>(null);
-  const [name, setName] = useState('');
+    nameShown: boolean;
+    savedKey: RegistrationResponseJSON | null;
+    name: string;
+  }>({
+    open: false,
+    error: null,
+    loading: false,
+
+    nameShown: false,
+    savedKey: null,
+    name: '',
+  });
 
   const handleRegisterPasskey = async () => {
     try {
-      setPasskeyLoading(true);
-      const res = await registerWeb(user!);
-      setNamerShown(true);
-      setSavedKey(res.toJSON());
+      const { data } = await fetchApi<PublicKeyCredentialCreationOptionsJSON>(
+        '/api/user/mfa/passkey/options',
+        'GET',
+      );
+
+      setPkData('loading', true);
+      const res = await startRegistration({ optionsJSON: data! });
+      setPkData({
+        nameShown: true,
+        savedKey: res,
+      });
     } catch (e: any) {
-      setPasskeyError(e.message ?? 'An error occurred while creating a passkey');
-      setPasskeyLoading(false);
-      setSavedKey(null);
+      setPkData({
+        error: e.message ?? 'An error occurred while creating a passkey',
+        loading: false,
+        savedKey: null,
+      });
+
+      setTimeout(() => {
+        setPkData('error', null);
+      }, 10000);
     }
   };
 
   const handleSavePasskey = async () => {
-    if (!savedKey) return;
+    if (!pkData.savedKey) return;
 
     const { error } = await fetchApi('/api/user/mfa/passkey', 'POST', {
-      reg: savedKey,
-      name: name.trim(),
+      response: pkData.savedKey,
+      name: pkData.name.trim(),
     });
 
     if (error) {
-      setNamerShown(false);
-      setPasskeyError('');
-      setPasskeyLoading(false);
-      setSavedKey(null);
+      setPkData({
+        nameShown: false,
+        savedKey: null,
+        error: '',
+        loading: false,
+      });
 
       notifications.show({
         title: 'Error while saving passkey',
@@ -55,10 +83,12 @@ export default function PasskeyButton() {
         icon: <IconKeyOff size='1rem' />,
       });
     } else {
-      setNamerShown(false);
-      setPasskeyLoading(false);
-      setSavedKey(null);
-      setPasskeyOpen(false);
+      setPkData({
+        nameShown: false,
+        loading: false,
+        savedKey: null,
+        open: false,
+      });
 
       notifications.show({
         title: 'Passkey saved!',
@@ -108,19 +138,9 @@ export default function PasskeyButton() {
     });
   };
 
-  useEffect(() => {
-    if (passkeyError) {
-      const timeout = setTimeout(() => {
-        setPasskeyError(null);
-      }, 10000);
-
-      return () => clearTimeout(timeout);
-    }
-  }, [passkeyError]);
-
   return (
     <>
-      <Modal title='Manage passkeys' opened={passkeyOpen} onClose={() => setPasskeyOpen(false)}>
+      <Modal title='Manage passkeys' opened={pkData.open} onClose={() => setPkData('open', false)}>
         <Stack gap='sm'>
           <>
             {user?.passkeys?.map((passkey, i) => (
@@ -139,37 +159,43 @@ export default function PasskeyButton() {
                     </>
                   )}
                 </Text>
+                {!(passkey?.reg as Record<string, any>).webauthn && (
+                  <Text size='xs' mt='xs' c='red'>
+                    Warning: This passkey was created with an older version of Zipline and <b>WILL NOT</b>{' '}
+                    work with this version. Please delete and recreate this passkey to ensure compatibility.
+                  </Text>
+                )}
               </Paper>
             ))}
           </>
           <Button
             size='sm'
             leftSection={<IconKey size='1rem' />}
-            color={passkeyError ? 'red' : undefined}
+            color={pkData.error ? 'red' : undefined}
             onClick={handleRegisterPasskey}
-            loading={passkeyLoading}
-            disabled={!!passkeyError}
+            loading={pkData.loading}
+            disabled={!!pkData.error}
           >
-            {passkeyError
+            {pkData.error
               ? 'Error while creating a passkey - try again later'
-              : passkeyLoading
+              : pkData.loading
                 ? 'Loading...'
                 : 'Create a passkey'}
           </Button>
-          {passkeyError && (
+          {pkData.error && (
             <Text size='xs' c='red'>
-              {passkeyError}
+              {pkData.error}
             </Text>
           )}
 
-          {namerShown && (
+          {pkData.nameShown && (
             <>
               <Text size='sm'>Assign a name to this passkey so you can remember it later.</Text>
 
               <TextInput
                 placeholder='Passkey name'
-                value={name}
-                onChange={(e) => setName(e.currentTarget.value)}
+                value={pkData.name}
+                onChange={(e) => setPkData('name', e.currentTarget.value)}
               />
 
               <Button
@@ -185,7 +211,7 @@ export default function PasskeyButton() {
         </Stack>
       </Modal>
 
-      <Button size='sm' leftSection={<IconKey size='1rem' />} onClick={() => setPasskeyOpen(true)}>
+      <Button size='sm' leftSection={<IconKey size='1rem' />} onClick={() => setPkData('open', true)}>
         Manage passkeys
       </Button>
     </>

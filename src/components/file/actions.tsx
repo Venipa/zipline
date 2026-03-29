@@ -1,8 +1,10 @@
+import { mutateFolder } from '@/components/pages/folders/actions';
 import { Response } from '@/lib/api/response';
 import type { File } from '@/lib/db/models/file';
 import { Folder } from '@/lib/db/models/folder';
 import { fetchApi } from '@/lib/fetchApi';
-import { conditionalWarning } from '@/lib/warningModal';
+import { conditionalWarning } from '@/lib/client/warningModal';
+import { getDomain } from '@/lib/client/webDomain';
 import { Anchor } from '@mantine/core';
 import { useClipboard } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -27,10 +29,12 @@ export function downloadFile(file: File) {
   window.open(`/raw/${file.name}?download=true`, '_blank');
 }
 
-export function copyFile(file: File, clipboard: ReturnType<typeof useClipboard>) {
-  const domain = `${window.location.protocol}//${window.location.host}`;
-
-  const url = file.url ? `${domain}${file.url}` : `${domain}/view/${file.name}`;
+export function copyFile(file: File, clipboard: ReturnType<typeof useClipboard>, raw: boolean = false) {
+  const url = raw
+    ? getDomain(`/raw/${file.name}`)
+    : file.url
+      ? getDomain(`${file.url}`)
+      : getDomain(`/view/${file.name}`);
 
   clipboard.copy(url);
 
@@ -106,43 +110,40 @@ export async function favoriteFile(file: File) {
   mutateFiles();
 }
 
-export function createFolderAndAdd(file: File, folderName: string | null) {
-  fetchApi<Extract<Response['/api/user/folders'], Folder>>('/api/user/folders', 'POST', {
-    name: folderName,
-    files: [file.id],
-  }).then(({ data, error }) => {
-    if (error) {
-      notifications.show({
-        title: 'Error while creating folder',
-        message: error.error,
-        color: 'red',
-        icon: <IconFolderOff size='1rem' />,
-      });
-    } else {
-      notifications.show({
-        title: 'Folder created',
-        message: `${data!.name} has been created with ${file.name}`,
-        color: 'green',
-        icon: <IconFolderPlus size='1rem' />,
-      });
-    }
-  });
+export async function createFolderAndAdd(file: File, folderName: string | null) {
+  const { data, error } = await fetchApi<Extract<Response['/api/user/folders'], Folder>>(
+    '/api/user/folders',
+    'POST',
+    {
+      name: folderName,
+      files: [file.id],
+    },
+  );
+  if (error) {
+    notifications.show({
+      title: 'Error while creating folder',
+      message: error.error,
+      color: 'red',
+      icon: <IconFolderOff size='1rem' />,
+    });
+  } else {
+    notifications.show({
+      title: 'Folder created',
+      message: `${data!.name} has been created with ${file.name}`,
+      color: 'green',
+      icon: <IconFolderPlus size='1rem' />,
+    });
+  }
 
-  mutateFolders();
+  mutateFolder();
   mutateFiles();
-
-  return undefined;
 }
 
 export async function removeFromFolder(file: File) {
-  const { data, error } = await fetchApi<Response['/api/user/files/[id]']>(
-    `/api/user/folders/${file.folderId}`,
-    'DELETE',
-    {
-      delete: 'file',
-      id: file.id,
-    },
-  );
+  const { data, error } = await fetchApi<{ folder: Folder }>(`/api/user/folders/${file.folderId}`, 'DELETE', {
+    delete: 'file',
+    id: file.id,
+  });
 
   if (error) {
     notifications.show({
@@ -154,13 +155,13 @@ export async function removeFromFolder(file: File) {
   } else {
     notifications.show({
       title: 'File removed from folder',
-      message: `${file.name} has been removed from ${data!.name}`,
+      message: `${file.name} has been removed from ${data?.folder.name}`,
       color: 'green',
       icon: <IconFolderMinus size='1rem' />,
     });
   }
 
-  mutateFolders();
+  mutateFolder();
   mutateFiles();
 }
 
@@ -191,7 +192,7 @@ export async function addToFolder(file: File, folderId: string | null) {
     });
   }
 
-  mutateFolders();
+  mutateFolder();
   mutateFiles();
 }
 
@@ -223,16 +224,11 @@ export async function addMultipleToFolder(files: File[], folderId: string | null
     });
   }
 
-  mutateFolders();
+  mutateFolder();
   mutateFiles();
 }
 
 export function mutateFiles() {
   mutate('/api/user/recent');
   mutate((key) => (key as Record<any, any>)?.key === '/api/user/files'); // paged files
-}
-
-export function mutateFolders() {
-  mutate('/api/user/folders');
-  mutate('/api/user/folders?noincl=true');
 }

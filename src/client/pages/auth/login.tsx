@@ -1,61 +1,53 @@
 import ExternalAuthButton from '@/components/pages/login/ExternalAuthButton';
-import { Response } from '@/lib/api/response';
+import LocalLogin from '@/components/pages/login/LocalLogin';
+import PasskeyAuthButton from '@/components/pages/login/PasskeyAuthButton';
+import SecureWarningModal from '@/components/pages/login/SecureWarningModal';
+import TotpModal from '@/components/pages/login/TotpModal';
+import { getWebClient } from '@/lib/api/detect';
+import { ApiError } from '@/lib/api/errors';
 import { fetchApi } from '@/lib/fetchApi';
-import useLogin from '@/lib/hooks/useLogin';
-import { authenticateWeb } from '@/lib/passkey';
+import useLogin from '@/lib/client/hooks/useLogin';
+import useObjectState from '@/lib/client/hooks/useObjectState';
+import { useTitle } from '@/lib/client/hooks/useTitle';
 import {
-  Button,
+  Anchor,
+  Box,
   Center,
   Divider,
   Group,
   Image,
   LoadingOverlay,
-  Modal,
   Paper,
-  PasswordInput,
-  PinInput,
   Stack,
   Text,
-  TextInput,
   Title,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { notifications, showNotification } from '@mantine/notifications';
+import { showNotification } from '@mantine/notifications';
+import { browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import {
   IconBrandDiscordFilled,
   IconBrandGithubFilled,
   IconBrandGoogleFilled,
+  IconCheck,
   IconCircleKeyFilled,
-  IconKey,
-  IconShieldQuestion,
-  IconUserPlus,
-  IconX,
 } from '@tabler/icons-react';
 import { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import GenericError from '../../error/GenericError';
-import { useTitle } from '@/lib/hooks/useTitle';
 
 export default function Login() {
   useTitle('Login');
 
-  const location = useLocation();
   const query = new URLSearchParams(location.search);
+  const navigate = useNavigate();
   const { user, mutate } = useLogin();
 
-  const navigate = useNavigate();
+  const isHttps = window.location.protocol === 'https:';
+  const webClient = JSON.stringify(getWebClient());
 
-  const {
-    data: config,
-    error: configError,
-    isLoading: configLoading,
-  } = useSWR<Response['/api/server/public']>('/api/server/public', {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    refreshWhenHidden: false,
-    revalidateIfStale: false,
-  });
+  const { data: config, error: configError, isLoading: configLoading } = useSWR('/api/server/public');
 
   const showLocalLogin =
     query.get('local') === 'true' ||
@@ -69,202 +61,122 @@ export default function Login() {
     Object.values(config?.oauthEnabled ?? {}).filter((x) => x === true).length === 1 &&
     query.get('local') !== 'true';
 
-  const [totpOpen, setTotpOpen] = useState(false);
-  const [pinDisabled, setPinDisabled] = useState(false);
-  const [pinError, setPinError] = useState('');
-  const [pin, setPin] = useState('');
-
-  const [passkeyErrored, setPasskeyErrored] = useState(false);
-  const [passkeyLoading, setPasskeyLoading] = useState(false);
-
-  const form = useForm({
-    initialValues: {
-      username: '',
-      password: '',
-    },
-    validate: {
-      username: (value) => (value.length > 1 ? null : 'Username is required'),
-      password: (value) => (value.length > 1 ? null : 'Password is required'),
-    },
-  });
-
-  const onSubmit = async (values: typeof form.values, code: string | undefined = undefined) => {
-    setPinDisabled(true);
-    setPinError('');
-
-    const { username, password } = values;
-
-    const { data, error } = await fetchApi<Response['/api/auth/login']>('/api/auth/login', 'POST', {
-      username,
-      password,
-      code,
-    });
-
-    if (error) {
-      if (error.error === 'Invalid username or password') {
-        form.setFieldError('username', 'Invalid username');
-        form.setFieldError('password', 'Invalid password');
-      } else if (error.error === 'Invalid code') setPinError(error.error!);
-      setPinDisabled(false);
-    } else {
-      if (data!.totp) {
-        setTotpOpen(true);
-        setPinDisabled(false);
-        return;
-      }
-
-      mutate(data as Response['/api/user']);
-    }
-  };
-
-  const handlePinChange = (value: string) => {
-    setPin(value);
-
-    if (value.length === 6) {
-      onSubmit(form.values, value);
-    }
-  };
-
-  const handlePasskeyLogin = async () => {
-    try {
-      setPasskeyLoading(true);
-      const res = await authenticateWeb();
-      const { data, error } = await fetchApi<Response['/api/auth/webauthn']>('/api/auth/webauthn', 'POST', {
-        auth: res.toJSON(),
-      });
-      if (error) {
-        setPasskeyErrored(true);
-        setPasskeyLoading(false);
-        notifications.show({
-          title: 'Error while authenticating with passkey',
-          message: error.error,
-          color: 'red',
-        });
-      } else {
-        mutate(data as Response['/api/user']);
-      }
-    } catch (e) {
-      console.log(e);
-      setPasskeyErrored(true);
-      setPasskeyLoading(false);
-    }
-  };
-
   useEffect(() => {
-    if (user) {
-      navigate('/dashboard');
-    }
-  }, [user]);
-
-  useEffect(() => {
-    console.log({ willRedirect, config });
     if (willRedirect && config) {
       const provider = Object.keys(config.oauthEnabled).find(
         (x) => config.oauthEnabled[x as keyof typeof config.oauthEnabled] === true,
       );
 
-      if (provider) {
-        window.location.href = `/api/auth/oauth/${provider.toLowerCase()}`;
-      }
+      if (provider) window.location.href = `/api/auth/oauth/${provider.toLowerCase()}`;
     }
   }, [willRedirect, config]);
 
-  useEffect(() => {
-    if (passkeyErrored) {
-      setTimeout(() => {
-        setPasskeyErrored(false);
-      }, 3000);
+  const [totp, setTotp] = useObjectState({
+    open: false,
+    disabled: false,
+    error: '',
+    pin: '',
+  });
 
-      showNotification({
-        title: 'Error while authenticating with passkey',
-        message: 'Please try again',
-        color: 'red',
-        icon: <IconX size='1rem' />,
-      });
-    }
-  }, [passkeyErrored]);
+  const [secureModal, setSecureModal] = useState(false);
+
+  const form = useForm({
+    initialValues: { username: '', password: '' },
+    validate: {
+      username: (v) => (v.length >= 1 ? null : 'Username is required'),
+      password: (v) => (v.length >= 1 ? null : 'Password is required'),
+    },
+  });
 
   useEffect(() => {
+    if (user) navigate('/dashboard');
     if (config?.firstSetup) navigate('/auth/setup');
-  }, [config]);
+  }, [user, config, navigate]);
 
-  if (configLoading) return <LoadingOverlay visible />;
+  const handleLoginSubmit = async (values: any, code?: string) => {
+    setTotp({ disabled: true, error: '' });
 
-  if (configError)
-    return (
-      <GenericError
-        title='Error loading configuration'
-        message='Could not load server configuration...'
-        details={configError}
-      />
+    const { data, error } = await fetchApi(
+      '/api/auth/login',
+      'POST',
+      { ...values, code },
+      { 'x-zipline-client': webClient },
     );
 
-  if (!config) return <LoadingOverlay visible />;
+    if (error) {
+      if (ApiError.check(error, 1044)) {
+        form.setFieldError('username', 'Invalid username');
+        form.setFieldError('password', 'Invalid password');
+      } else {
+        setTotp('error', error.error || 'Login failed');
+      }
+      setTotp('disabled', false);
+    } else if (data?.totp) {
+      setTotp({ open: true, disabled: false });
+    } else {
+      showNotification({
+        message: 'Logging in...',
+        icon: <IconCheck size='1rem' />,
+        autoClose: 700,
+      });
+      mutate(data);
+    }
+  };
+
+  if (configLoading || !config) return <LoadingOverlay visible />;
+  if (configError) return <GenericError title='Error' message='Config load failed' details={configError} />;
+
+  const hasBg = !!config.website.loginBackground;
 
   return (
     <>
       {willRedirect && !showLocalLogin && <LoadingOverlay visible />}
 
-      <Modal onClose={() => {}} title='Enter code' opened={totpOpen} withCloseButton={false}>
-        <Center>
-          <PinInput
-            data-autofocus
-            length={6}
-            oneTimeCode
-            type='number'
-            placeholder=''
-            onChange={handlePinChange}
-            autoFocus={true}
-            error={!!pinError}
-            disabled={pinDisabled}
-            size='xl'
-          />
-        </Center>
-        {pinError && (
-          <Text ta='center' size='sm' c='red' mt={0}>
-            {pinError}
-          </Text>
-        )}
+      <TotpModal
+        state={totp}
+        onPinChange={(val) => setTotp('pin', val)}
+        onVerify={() => handleLoginSubmit(form.values, totp.pin)}
+        onCancel={() => {
+          setTotp('open', false);
+          form.reset();
+        }}
+      />
 
-        <Group mt='sm' grow>
-          <Button
-            leftSection={<IconX size='1rem' />}
-            color='red'
-            variant='outline'
-            onClick={() => {
-              setTotpOpen(false);
-              form.reset();
-            }}
-          >
-            Cancel login attempt
-          </Button>
-          <Button
-            leftSection={<IconShieldQuestion size='1rem' />}
-            loading={pinDisabled}
-            type='submit'
-            onClick={() => onSubmit(form.values, pin)}
-          >
-            Verify
-          </Button>
-        </Group>
-      </Modal>
+      <SecureWarningModal
+        opened={secureModal}
+        onClose={() => setSecureModal(false)}
+        returnHttps={config.returnHttps}
+      />
+
+      {isHttps && !config.returnHttps && (
+        <Box pos='absolute' top={10} left='50%' style={{ transform: 'translateX(-50%)' }}>
+          <Text size='sm' c='red' ta='center'>
+            You are accessing this instance through a <b>secure</b> context but the server is not configured
+            to use HTTPS. Click <Anchor onClick={() => setSecureModal(true)}> here</Anchor> to learn more.
+          </Text>
+        </Box>
+      )}
+
+      {!isHttps && config.returnHttps && (
+        <Box pos='absolute' top={10} left='50%' style={{ transform: 'translateX(-50%)' }}>
+          <Text size='sm' c='red' ta='center'>
+            You are accessing this instance through an <b>insecure</b> context but the server is configured to
+            use HTTPS. This may cause issues when logging in. Click{' '}
+            <Anchor onClick={() => setSecureModal(true)}> here</Anchor> to learn more.
+          </Text>
+        </Box>
+      )}
 
       <Center h='100vh'>
-        {config.website.loginBackground && (
+        {hasBg && (
           <Image
             src={config.website.loginBackground}
-            alt={config.website.loginBackground + ' failed to load'}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              ...(config.website.loginBackgroundBlur && { filter: 'blur(10px)' }),
-            }}
+            pos='absolute'
+            inset={0}
+            w='100%'
+            h='100%'
+            fit='cover'
+            style={{ filter: config.website.loginBackgroundBlur ? 'blur(10px)' : undefined }}
           />
         )}
 
@@ -273,96 +185,29 @@ export default function Login() {
           p='xl'
           shadow='xl'
           withBorder
+          pos='relative'
           style={{
-            backgroundColor: config.website.loginBackground ? 'rgba(0, 0, 0, 0)' : undefined,
-            backdropFilter: config.website.loginBackgroundBlur ? 'blur(35px)' : undefined,
+            backgroundColor: hasBg ? 'transparent' : undefined,
+            backdropFilter: hasBg ? 'blur(35px)' : undefined,
           }}
         >
-          <div style={{ width: '100%', overflowWrap: 'break-word' }}>
-            <Title
-              order={1}
-              ta='center'
-              style={{
-                whiteSpace: 'normal',
-                fontSize: `clamp(20px, ${Math.max(
-                  50 - (config.website.title?.length ?? 0) / 2,
-                  20,
-                )}px, 50px)`,
-              }}
-            >
-              <b>{config.website.title ?? 'Zipline'}</b>
-            </Title>
-          </div>
+          <Title order={1} ta='center' mb='md'>
+            <b>{config.website.title ?? 'Zipline'}</b>
+          </Title>
 
-          {showLocalLogin && (
-            <form onSubmit={form.onSubmit((v) => onSubmit(v))}>
-              <Stack my='sm'>
-                <TextInput
-                  size='md'
-                  placeholder='Enter your username...'
-                  styles={{
-                    input: {
-                      backgroundColor: config.website.loginBackground ? 'transparent' : undefined,
-                    },
-                  }}
-                  {...form.getInputProps('username', { withError: true })}
-                />
-
-                <PasswordInput
-                  size='md'
-                  placeholder='Enter your password...'
-                  styles={{
-                    input: {
-                      backgroundColor: config.website.loginBackground ? 'transparent' : undefined,
-                    },
-                  }}
-                  {...form.getInputProps('password')}
-                />
-
-                <Button
-                  size='md'
-                  fullWidth
-                  type='submit'
-                  loading={!config}
-                  variant={config.website.loginBackground ? 'outline' : 'filled'}
-                >
-                  Login
-                </Button>
-              </Stack>
-            </form>
-          )}
-
-          <Stack my='xs'>
-            {(config.features.oauthRegistration || config.features.userRegistration) && (
-              <Divider label='or' />
+          <Stack>
+            {showLocalLogin && (
+              <LocalLogin
+                form={form}
+                onSubmit={handleLoginSubmit}
+                loading={totp.disabled}
+                hasBackground={hasBg}
+              />
             )}
 
-            {config.mfa.passkeys && (
-              <Button
-                onClick={handlePasskeyLogin}
-                size='md'
-                fullWidth
-                variant='outline'
-                leftSection={<IconKey size='1rem' />}
-                color={passkeyErrored ? 'red' : undefined}
-                loading={passkeyLoading}
-              >
-                Login with passkey
-              </Button>
-            )}
+            <Divider label='or' />
 
-            {config.features.userRegistration && (
-              <Button
-                component={Link}
-                to='/auth/register'
-                size='md'
-                fullWidth
-                variant='outline'
-                leftSection={<IconUserPlus size='1rem' />}
-              >
-                Sign up
-              </Button>
-            )}
+            {config.mfa.passkeys && browserSupportsWebAuthn() && <PasskeyAuthButton onAuthSuccess={mutate} />}
 
             <Group grow>
               {config.oauthEnabled.discord && (

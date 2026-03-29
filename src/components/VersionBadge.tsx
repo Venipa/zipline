@@ -1,4 +1,4 @@
-import useVersion from '@/lib/hooks/useVersion';
+import useVersion from '@/lib/client/hooks/useVersion';
 import {
   Anchor,
   Badge,
@@ -14,7 +14,11 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 
-function DataDisplay({ items }: { items: { label: string; value: string; href?: string }[] }) {
+function DataDisplay({
+  items,
+}: {
+  items: { label: string; value: string; href?: string; color?: string }[];
+}) {
   return (
     <Paper withBorder p='sm'>
       <Stack gap='xs'>
@@ -29,7 +33,7 @@ function DataDisplay({ items }: { items: { label: string; value: string; href?: 
                 {item.value}
               </Anchor>
             ) : (
-              <Text>{item.value}</Text>
+              <Text c={item.color ?? undefined}>{item.value}</Text>
             )}
           </Flex>
         ))}
@@ -105,10 +109,14 @@ export default function VersionBadge() {
             },
             {
               label: 'Commit',
-              value: version.version.sha!,
+              value: version.version.sha!.slice(0, 7)!,
               href: `https://github.com/diced/zipline/commit/${version.version.sha}`,
             },
-            { label: 'Upstream?', value: version.isUpstream ? 'Yes' : 'No' },
+            {
+              label: 'Upstream?',
+              value: version.isUpstream ? 'Yes' : 'No',
+              color: version.isUpstream ? 'orange' : 'green',
+            },
           ]}
         />
 
@@ -131,6 +139,7 @@ export default function VersionBadge() {
                 {
                   label: 'Available to update',
                   value: version.latest.commit.pull ? 'Yes' : 'No',
+                  color: version.latest.commit.pull ? 'green' : 'red',
                 },
               ]}
             />

@@ -4,7 +4,7 @@ import { bytes } from '@/lib/bytes';
 import { User } from '@/lib/db/models/user';
 import { fetchApi } from '@/lib/fetchApi';
 import { canInteract } from '@/lib/role';
-import { useUserStore } from '@/lib/store/user';
+import { useUserStore } from '@/lib/client/store/user';
 import {
   ActionIcon,
   Button,
@@ -23,7 +23,7 @@ import {
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { IconPhotoMinus, IconUserCancel, IconUserEdit } from '@tabler/icons-react';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { mutate } from 'swr';
 
 export default function EditUserModal({
@@ -36,6 +36,12 @@ export default function EditUserModal({
   onClose: () => void;
 }) {
   const currentUser = useUserStore((state) => state.user);
+
+  const derivedFileType: 'BY_BYTES' | 'BY_FILES' | 'NONE' = useMemo(() => {
+    if (user?.quota?.maxBytes != null) return 'BY_BYTES';
+    if (user?.quota?.maxFiles != null) return 'BY_FILES';
+    return 'NONE';
+  }, [user]);
 
   const form = useForm<{
     username: string;
@@ -52,10 +58,10 @@ export default function EditUserModal({
       password: '',
       role: user?.role || 'USER',
       avatar: null,
-      fileType: user?.quota?.filesQuota || 'NONE',
-      maxFiles: user?.quota?.maxFiles || 0,
-      maxBytes: user?.quota?.maxBytes || '',
-      maxUrls: user?.quota?.maxUrls || 0,
+      fileType: derivedFileType,
+      maxFiles: user?.quota?.maxFiles ?? 0,
+      maxBytes: user?.quota?.maxBytes ?? '',
+      maxUrls: user?.quota?.maxUrls ?? 0,
     },
     validate: {
       maxBytes(value, values) {
@@ -69,21 +75,38 @@ export default function EditUserModal({
         if (typeof value !== 'number' || value < 0) return 'Invalid value';
       },
     },
+    enhanceGetInputProps: ({ field }) => ({
+      name: field,
+    }),
   });
+
+  useEffect(() => {
+    form.setValues({
+      username: user?.username || '',
+      password: '',
+      role: user?.role || 'USER',
+      avatar: null,
+      fileType:
+        user?.quota?.maxBytes != null ? 'BY_BYTES' : user?.quota?.maxFiles != null ? 'BY_FILES' : 'NONE',
+      maxFiles: user?.quota?.maxFiles ?? 0,
+      maxBytes: user?.quota?.maxBytes ?? '',
+      maxUrls: user?.quota?.maxUrls ?? 0,
+    });
+  }, [user]);
 
   const onSubmit = async (values: typeof form.values) => {
     if (!user) return;
 
     let avatar64: string | null = null;
     if (values.avatar) {
-      if (!values.avatar.type.startsWith('image/')) return form.setFieldError('avatar', 'Invalid file type');
+      if (!values.avatar.type.startsWith('image/')) {
+        return form.setFieldError('avatar', 'Invalid file type');
+      }
 
       try {
-        const res = await readToDataURL(values.avatar);
-        avatar64 = res;
+        avatar64 = await readToDataURL(values.avatar);
       } catch (e) {
         console.error(e);
-
         return form.setFieldError('avatar', 'Failed to read avatar file');
       }
     }
@@ -92,24 +115,28 @@ export default function EditUserModal({
       filesType?: 'BY_BYTES' | 'BY_FILES' | 'NONE';
       maxFiles?: number | null;
       maxBytes?: string | null;
-
       maxUrls?: number | null;
     } = {};
 
     if (values.fileType === 'NONE') {
       finalQuota.filesType = 'NONE';
-      finalQuota.maxFiles = null;
-      finalQuota.maxBytes = null;
-      finalQuota.maxUrls = null;
-    } else if (values.fileType === 'BY_BYTES') {
-      finalQuota.filesType = 'BY_BYTES';
-      finalQuota.maxBytes = values.maxBytes;
-    } else {
-      finalQuota.filesType = 'BY_FILES';
-      finalQuota.maxFiles = values.maxFiles;
     }
 
-    if (values.maxUrls) finalQuota.maxUrls = values.maxUrls > 0 ? values.maxUrls : null;
+    if (values.fileType === 'BY_BYTES') {
+      finalQuota.filesType = 'BY_BYTES';
+      finalQuota.maxBytes = values.maxBytes;
+      finalQuota.maxFiles = null;
+    }
+
+    if (values.fileType === 'BY_FILES') {
+      finalQuota.filesType = 'BY_FILES';
+      finalQuota.maxFiles = values.maxFiles;
+      finalQuota.maxBytes = null;
+    }
+
+    if (values.maxUrls) {
+      finalQuota.maxUrls = values.maxUrls > 0 ? values.maxUrls : null;
+    }
 
     const { data, error } = await fetchApi<Response['/api/users/[id]']>(`/api/users/${user.id}`, 'PATCH', {
       ...(values.username !== user.username && { username: values.username }),
@@ -140,22 +167,9 @@ export default function EditUserModal({
     }
   };
 
-  useEffect(() => {
-    form.setValues({
-      username: user?.username || '',
-      password: '',
-      role: user?.role || 'USER',
-      avatar: null,
-      fileType: user?.quota?.filesQuota || 'NONE',
-      maxFiles: user?.quota?.maxFiles || 0,
-      maxBytes: user?.quota?.maxBytes || '',
-      maxUrls: user?.quota?.maxUrls || 0,
-    });
-  }, [user]);
-
   return (
     <Modal centered title={`Edit ${user?.username ?? ''}`} onClose={onClose} opened={opened}>
-      <Text size='sm' c='dimmed'>
+      <Text size='sm' mt={-5} my='sm' c='dimmed'>
         Any fields that are blank will be omitted, and will not be updated.
       </Text>
 
@@ -165,14 +179,17 @@ export default function EditUserModal({
             <TextInput
               label='Username'
               placeholder='Enter a username...'
+              autoComplete='username'
               {...form.getInputProps('username')}
             />
+
             <PasswordInput
               label='Password'
               placeholder='Enter a password...'
               autoComplete='new-password'
               {...form.getInputProps('password')}
             />
+
             <FileInput
               label='Avatar'
               placeholder='Select an avatar...'
@@ -205,7 +222,7 @@ export default function EditUserModal({
             />
 
             <Divider />
-            <Title order={4}>Quota</Title>
+            <Title order={5}>Quota</Title>
 
             <Select
               label='File Quota Type'
@@ -213,34 +230,43 @@ export default function EditUserModal({
               data={[
                 { value: 'BY_BYTES', label: 'By Bytes' },
                 { value: 'BY_FILES', label: 'By File Count' },
-                { value: 'NONE', label: 'No File Quota' },
+                { value: 'NONE', label: 'No Files Quota' },
               ]}
               {...form.getInputProps('fileType')}
             />
-            {form.values.fileType === 'BY_FILES' ? (
-              <NumberInput
-                label='Max Files'
-                description='The maximum number of files the user can upload.'
-                placeholder='Enter a number...'
-                mx='lg'
-                min={0}
-                {...form.getInputProps('maxFiles')}
-              />
-            ) : form.values.fileType === 'BY_BYTES' ? (
-              <TextInput
-                label='Max Bytes'
-                description='The maximum number of bytes the user can upload.'
-                placeholder='Enter a human readable byte-format...'
-                mx='lg'
-                {...form.getInputProps('maxBytes')}
-              />
-            ) : null}
+
+            {form.values.fileType !== 'NONE' && (
+              <>
+                {form.values.fileType === 'BY_FILES' && (
+                  <NumberInput
+                    label='Max Files'
+                    description='The maximum number of files the user can upload.'
+                    placeholder='Enter a number...'
+                    mx='lg'
+                    min={0}
+                    {...form.getInputProps('maxFiles')}
+                  />
+                )}
+
+                {form.values.fileType === 'BY_BYTES' && (
+                  <TextInput
+                    label='Max Bytes'
+                    description='The maximum number of bytes the user can upload.'
+                    placeholder='Enter a human readable byte-format...'
+                    mx='lg'
+                    {...form.getInputProps('maxBytes')}
+                  />
+                )}
+              </>
+            )}
 
             <NumberInput
               label='Max URLs'
               placeholder='Enter a number...'
+              description='The maximum number of URLs the user can create. Leave as 0 for unlimited.'
               {...form.getInputProps('maxUrls')}
             />
+            <Divider />
 
             <Button
               type='submit'

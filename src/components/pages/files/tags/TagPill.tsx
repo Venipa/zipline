@@ -11,8 +11,13 @@ export default function TagPill({
   if (!tag) return null;
 
   return (
-    <Pill bg={tag.color || undefined} c={isLightColor(tag.color) ? 'black' : 'white'} {...other}>
-      {tag.name}
+    <Pill
+      bg={tag.color || undefined}
+      c={isLightColor(tag.color) ? 'black' : 'white'}
+      title={tag.name}
+      {...other}
+    >
+      {tag.name.length <= 24 ? tag.name : tag.name.slice(0, 21) + '...'}
     </Pill>
   );
 }

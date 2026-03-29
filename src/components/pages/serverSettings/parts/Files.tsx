@@ -30,12 +30,14 @@ export default function Files({
     filesDisabledExtensions: string;
     filesMaxFileSize: string;
     filesDefaultExpiration: string | null;
+    filesMaxExpiration: string | null;
     filesAssumeMimetypes: boolean;
     filesDefaultDateFormat: string;
     filesRemoveGpsMetadata: boolean;
     filesRandomWordsNumAdjectives: number;
     filesRandomWordsSeparator: string;
     filesDefaultCompressionFormat: string;
+    filesMaxFilesPerUpload: number;
   }>({
     initialValues: {
       filesRoute: '/u',
@@ -44,12 +46,14 @@ export default function Files({
       filesDisabledExtensions: '',
       filesMaxFileSize: '100mb',
       filesDefaultExpiration: '',
+      filesMaxExpiration: '',
       filesAssumeMimetypes: false,
       filesDefaultDateFormat: 'YYYY-MM-DD_HH:mm:ss',
       filesRemoveGpsMetadata: false,
       filesRandomWordsNumAdjectives: 3,
       filesRandomWordsSeparator: '-',
       filesDefaultCompressionFormat: 'jpg',
+      filesMaxFilesPerUpload: 1000,
     },
     enhanceGetInputProps: (payload) => ({
       disabled: data?.tampered?.includes(payload.field) || false,
@@ -61,6 +65,12 @@ export default function Files({
       values.filesDefaultExpiration = null;
     } else {
       values.filesDefaultExpiration = values.filesDefaultExpiration.trim();
+    }
+
+    if (values.filesMaxExpiration?.trim() === '' || !values.filesMaxExpiration) {
+      values.filesMaxExpiration = null;
+    } else {
+      values.filesMaxExpiration = values.filesMaxExpiration.trim();
     }
 
     if (!values.filesDisabledExtensions) {
@@ -95,12 +105,14 @@ export default function Files({
       filesDisabledExtensions: data.settings.filesDisabledExtensions.join(', ') ?? '',
       filesMaxFileSize: data.settings.filesMaxFileSize ?? '100mb',
       filesDefaultExpiration: data.settings.filesDefaultExpiration ?? '',
+      filesMaxExpiration: data.settings.filesMaxExpiration ?? '',
       filesAssumeMimetypes: data.settings.filesAssumeMimetypes ?? false,
       filesDefaultDateFormat: data.settings.filesDefaultDateFormat ?? 'YYYY-MM-DD_HH:mm:ss',
       filesRemoveGpsMetadata: data.settings.filesRemoveGpsMetadata ?? false,
       filesRandomWordsNumAdjectives: data.settings.filesRandomWordsNumAdjectives ?? 3,
       filesRandomWordsSeparator: data.settings.filesRandomWordsSeparator ?? '-',
       filesDefaultCompressionFormat: data.settings.filesDefaultCompressionFormat ?? 'jpg',
+      filesMaxFilesPerUpload: data.settings.filesMaxFilesPerUpload ?? 1000,
     });
   }, [data]);
 
@@ -162,6 +174,13 @@ export default function Files({
           />
 
           <TextInput
+            label='Default Date Format'
+            description='The default date format to use.'
+            placeholder='YYYY-MM-DD_HH:mm:ss'
+            {...form.getInputProps('filesDefaultDateFormat')}
+          />
+
+          <TextInput
             label='Default Expiration'
             description='The default expiration time for files.'
             placeholder='30d'
@@ -169,10 +188,10 @@ export default function Files({
           />
 
           <TextInput
-            label='Default Date Format'
-            description='The default date format to use.'
-            placeholder='YYYY-MM-DD_HH:mm:ss'
-            {...form.getInputProps('filesDefaultDateFormat')}
+            label='Max Expiration'
+            description='The maximum expiration time allowed for files.'
+            placeholder='365d'
+            {...form.getInputProps('filesMaxExpiration')}
           />
 
           <NumberInput
@@ -201,6 +220,13 @@ export default function Files({
               { value: 'jxl', label: '.jxl' },
             ]}
             {...form.getInputProps('filesDefaultCompressionFormat')}
+          />
+
+          <NumberInput
+            label='Max Files Per Upload'
+            description='The maximum number of files allowed per upload. Requires a server restart.'
+            min={1}
+            {...form.getInputProps('filesMaxFilesPerUpload')}
           />
         </SimpleGrid>
 

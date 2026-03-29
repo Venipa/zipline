@@ -1,6 +1,6 @@
 import { type Response } from '@/lib/api/response';
 import { fetchApi } from '@/lib/fetchApi';
-import { useTitle } from '@/lib/hooks/useTitle';
+import { useTitle } from '@/lib/client/hooks/useTitle';
 import {
   Anchor,
   Button,
@@ -62,9 +62,12 @@ export function Component() {
       password: '',
     },
     validate: {
-      username: (value) => (value.length < 1 ? 'Username is required' : null),
-      password: (value) => (value.length < 1 ? 'Password is required' : null),
+      username: (value) => (value.length >= 1 ? null : 'Username is required'),
+      password: (value) => (value.length >= 1 ? null : 'Password is required'),
     },
+    enhanceGetInputProps: ({ field }) => ({
+      name: field,
+    }),
   });
 
   const onSubmit = async (values: typeof form.values) => {
@@ -180,12 +183,14 @@ export function Component() {
               <TextInput
                 label='Username'
                 placeholder='Enter a username...'
+                autoComplete='username'
                 {...form.getInputProps('username')}
               />
 
               <PasswordInput
                 label='Password'
                 placeholder='Enter a password...'
+                autoComplete='new-password'
                 {...form.getInputProps('password')}
               />
             </Stack>

@@ -82,7 +82,6 @@ export default function SettingsExports() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {isLoading && <Table.Tr>Loading...</Table.Tr>}
                 {data?.map((exportDb) => (
                   <Table.Tr key={exportDb.id}>
                     <Table.Td maw={140}>

@@ -2,19 +2,19 @@ import { config } from '@/lib/config';
 import { createToken, decrypt } from '@/lib/crypto';
 import { prisma } from '@/lib/db';
 import Logger, { log } from '@/lib/logger';
-import { findProvider } from '@/lib/oauth/providerUtil';
+import { findProvider } from '@/lib/oauth/providers';
 import { OAuthProviderType, User } from '@/prisma/client';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fastifyPlugin from 'fastify-plugin';
 import { getSession, saveSession } from '../session';
 
-export interface OAuthQuery {
+export type OAuthQuery = {
   state?: string;
   code: string;
   host: string;
-}
+};
 
-export interface OAuthResponse {
+export type OAuthResponse = {
   username?: string;
   user_id?: string;
   access_token?: string;
@@ -24,7 +24,7 @@ export interface OAuthResponse {
   error?: string;
   error_code?: number;
   redirect?: string;
-}
+};
 
 async function oauthPlugin(fastify: FastifyInstance) {
   fastify.decorateRequest('oauthHandle', oauthHandle);
@@ -82,7 +82,9 @@ async function oauthPlugin(fastify: FastifyInstance) {
     const user = await prisma.user.findFirst({
       where: {
         sessions: {
-          has: session.sessionId ?? '',
+          some: {
+            id: session.sessionId ?? '',
+          },
         },
       },
       include: {
@@ -128,7 +130,7 @@ async function oauthPlugin(fastify: FastifyInstance) {
           },
         });
 
-        await saveSession(session, user);
+        await saveSession(session, user, false);
 
         logger.info('linked oauth account', {
           provider,
@@ -181,6 +183,8 @@ async function oauthPlugin(fastify: FastifyInstance) {
           user: true,
         },
       });
+
+      if (session?.sessionId) session.destroy();
 
       await saveSession(session, <User>login.user!, false);
 

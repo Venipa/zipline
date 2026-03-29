@@ -17,7 +17,7 @@ body:
     id: runtime-type
     attributes:
       label: How is Zipline being run?
-      description: 
+      description:
       options:
         - On docker (docker, docker compose, etc.)
         - Built from source (running it through `pnpm start` or `node`, etc.)
@@ -34,7 +34,7 @@ body:
         - If version checking is enabled (it is by default): paste the response from `http://<domain>/api/version`
         - If using docker (and can't do the above): specify the tag you are using (`latest`, `trunk`, or a tag digest)
         - A simple version number (e.g. "4.2.1") may also suffice
-      placeholder: "4.2.1"
+      placeholder: '4.2.1'
     validations:
       required: true
 
@@ -68,4 +68,3 @@ body:
       description: |
         Please list the exact steps required to reproduce the issue.
         Include any relevant configuration options, settings, or external services that may affect Zipline’s functionality.
-

@@ -47,7 +47,7 @@ Visit [the docs](https://zipline.diced.sh/docs/get-started/docker) for a more in
 
 This is the recommended way to run Zipline:
 
-```yml
+```yaml
 services:
   postgresql:
     image: postgres:16
@@ -260,10 +260,6 @@ DATASOURCE_LOCAL_DIRECTORY="/path/to/your/local/files"
 # DATASOURCE_S3_BUCKET="your-bucket"
 # DATASOURCE_S3_ENDPOINT="your-endpoint"
 # ^ if using a custom endpoint other than aws s3
-
-# optional but both are required if using ssl
-# SSL_KEY="/path/to/your/ssl/key"
-# SSL_CERT="/path/to/your/ssl/cert"
 ```
 
 Install dependencies:

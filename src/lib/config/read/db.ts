@@ -17,6 +17,7 @@ export const DATABASE_TO_PROP = {
   tasksMaxViewsInterval: 'tasks.maxViewsInterval',
   tasksThumbnailsInterval: 'tasks.thumbnailsInterval',
   tasksMetricsInterval: 'tasks.metricsInterval',
+  tasksCleanThumbnailsInterval: 'tasks.cleanThumbnailsInterval',
 
   filesRoute: 'files.route',
   filesLength: 'files.length',
@@ -24,12 +25,14 @@ export const DATABASE_TO_PROP = {
   filesDisabledExtensions: 'files.disabledExtensions',
   filesMaxFileSize: 'files.maxFileSize',
   filesDefaultExpiration: 'files.defaultExpiration',
+  filesMaxExpiration: 'files.maxExpiration',
   filesAssumeMimetypes: 'files.assumeMimetypes',
   filesDefaultDateFormat: 'files.defaultDateFormat',
   filesRemoveGpsMetadata: 'files.removeGpsMetadata',
   filesRandomWordsNumAdjectives: 'files.randomWordsNumAdjectives',
   filesRandomWordsSeparator: 'files.randomWordsSeparator',
   filesDefaultCompressionFormat: 'files.defaultCompressionFormat',
+  filesMaxFilesPerUpload: 'files.maxFilesPerUpload',
 
   urlsRoute: 'urls.route',
   urlsLength: 'urls.length',
@@ -95,7 +98,9 @@ export const DATABASE_TO_PROP = {
 
   mfaTotpEnabled: 'mfa.totp.enabled',
   mfaTotpIssuer: 'mfa.totp.issuer',
-  mfaPasskeys: 'mfa.passkeys',
+  mfaPasskeysEnabled: 'mfa.passkeys.enabled',
+  mfaPasskeysRpID: 'mfa.passkeys.rpID',
+  mfaPasskeysOrigin: 'mfa.passkeys.origin',
 
   ratelimitEnabled: 'ratelimit.enabled',
   ratelimitMax: 'ratelimit.max',

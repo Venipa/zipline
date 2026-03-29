@@ -1,16 +1,14 @@
 import { config } from '@/lib/config';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '../typedPlugin';
 
 export const PATH = '/robots.txt';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get(PATH, async (req, res) => {
+export default typedPlugin(
+  async (server) => {
+    server.get(PATH, async (_, res) => {
       if (!config.features.robotsTxt) return res.callNotFound();
 
       return 'User-Agent: *\nDisallow: /';
     });
-
-    done();
   },
   { name: PATH },
 );

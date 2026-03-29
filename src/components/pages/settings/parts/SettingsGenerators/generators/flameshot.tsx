@@ -61,7 +61,7 @@ export function flameshot(token: string, type: 'file' | 'url', options: Generato
   }
 
   for (const [key, value] of Object.entries(toAddHeaders)) {
-    curl.push('-H', `${key}: ${value}`);
+    curl.push('-H', `'${key}: ${value}'`);
   }
 
   let script;

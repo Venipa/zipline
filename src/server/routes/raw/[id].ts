@@ -1,3 +1,4 @@
+import { ApiError } from '@/lib/api/errors';
 import { parseRange } from '@/lib/api/range';
 import { config } from '@/lib/config';
 import { verifyPassword } from '@/lib/crypto';
@@ -5,8 +6,8 @@ import { datasource } from '@/lib/datasource';
 import { prisma } from '@/lib/db';
 import { log } from '@/lib/logger';
 import { guess } from '@/lib/mimes';
+import typedPlugin from '@/server/typedPlugin';
 import { FastifyReply, FastifyRequest } from 'fastify';
-import fastifyPlugin from 'fastify-plugin';
 
 const viewsCache = new Map<string, number>();
 const VIEW_WINDOW = 5 * 1000;
@@ -78,10 +79,10 @@ export const rawFileHandler = async (
   }
 
   if (file?.password) {
-    if (!pw) return res.forbidden('Password protected.');
+    if (!pw) throw new ApiError(3004);
     const verified = await verifyPassword(pw, file.password!);
 
-    if (!verified) return res.forbidden('Incorrect password.');
+    if (!verified) throw new ApiError(3005);
   }
 
   const size = file?.size || (await datasource.size(file?.name ?? id));
@@ -124,6 +125,9 @@ export const rawFileHandler = async (
     }
   };
 
+  const fileType = file?.type || 'application/octet-stream';
+  const contentType = fileType.startsWith('text/') ? `${fileType}; charset=utf-8` : fileType;
+
   if (req.headers.range) {
     const [start, end] = parseRange(req.headers.range, size);
     if (start >= size || end >= size) {
@@ -133,12 +137,12 @@ export const rawFileHandler = async (
       await countView();
 
       return res
-        .type(file?.type || 'application/octet-stream')
+        .type(contentType)
         .headers({
           'Content-Length': size,
           ...(file?.originalName
             ? {
-                'Content-Disposition': `${download ? 'attachment; ' : ''}filename="${encodeURIComponent(file.originalName)}"`,
+                'Content-Disposition': `${download ? 'attachment; ' : ''}filename*=utf-8''${encodeURIComponent(file.originalName)}`,
               }
             : download && { 'Content-Disposition': 'attachment;' }),
         })
@@ -152,14 +156,14 @@ export const rawFileHandler = async (
     await countView();
 
     return res
-      .type(file?.type || 'application/octet-stream')
+      .type(contentType)
       .headers({
         'Content-Range': `bytes ${start}-${end}/${size}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': end - start + 1,
         ...(file?.originalName
           ? {
-              'Content-Disposition': `${download ? 'attachment; ' : ''}filename="${encodeURIComponent(file.originalName)}"`,
+              'Content-Disposition': `${download ? 'attachment; ' : ''}filename*=utf-8''${encodeURIComponent(file.originalName)}`,
             }
           : download && { 'Content-Disposition': 'attachment;' }),
       })
@@ -173,13 +177,13 @@ export const rawFileHandler = async (
   await countView();
 
   return res
-    .type(file?.type || 'application/octet-stream')
+    .type(contentType)
     .headers({
       'Content-Length': size,
       'Accept-Ranges': 'bytes',
       ...(file?.originalName
         ? {
-            'Content-Disposition': `${download ? 'attachment; ' : ''}filename="${encodeURIComponent(file.originalName)}"`,
+            'Content-Disposition': `${download ? 'attachment; ' : ''}filename*=utf-8''${encodeURIComponent(file.originalName)}`,
           }
         : download && { 'Content-Disposition': 'attachment;' }),
     })
@@ -188,11 +192,9 @@ export const rawFileHandler = async (
 };
 
 export const PATH = '/raw/:id';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     server.get(PATH, rawFileHandler);
-
-    done();
   },
   { name: PATH },
 );

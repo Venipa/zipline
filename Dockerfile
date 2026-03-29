@@ -33,8 +33,6 @@ COPY code.json ./code.json
 COPY vite-env.d.ts ./vite-env.d.ts
 COPY scripts ./scripts
 
-ENV NEXT_TELEMETRY_DISABLED=1
-
 RUN ZIPLINE_BUILD=true pnpm run build
 
 FROM base
@@ -52,8 +50,15 @@ RUN pnpm prisma generate
 RUN rm -rf /tmp/* /root/*
 
 ENV NODE_ENV=production
+ENV ZIPLINE_ROOT=/zipline
 
 ARG ZIPLINE_GIT_SHA
 ENV ZIPLINE_GIT_SHA=${ZIPLINE_GIT_SHA:-"unknown"}
 
-CMD ["node", "--enable-source-maps", "build/server"]
+# add scripts
+COPY docker/entrypoint.sh /zipline/entrypoint
+COPY docker/ziplinectl.sh /zipline/ziplinectl
+
+RUN ln -s /zipline/ziplinectl /usr/local/bin/ziplinectl
+
+ENTRYPOINT ["/zipline/entrypoint"]

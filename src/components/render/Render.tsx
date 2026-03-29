@@ -1,4 +1,4 @@
-import { RenderMode } from '@/components/pages/upload/renderMode';
+import { RenderMode } from './renderMode';
 import { Alert, Button } from '@mantine/core';
 import { IconEyeFilled } from '@tabler/icons-react';
 import { useState } from 'react';

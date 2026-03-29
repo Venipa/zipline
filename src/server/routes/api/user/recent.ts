@@ -1,41 +1,51 @@
 import { prisma } from '@/lib/db';
-import { File, cleanFiles, fileSelect } from '@/lib/db/models/file';
+import { File, cleanFiles, fileSchema, fileSelect } from '@/lib/db/models/file';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiUserRecentResponse = File[];
 
-type Query = {
-  take?: string;
-};
-
 export const PATH = '/api/user/recent';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get<{ Querystring: Query }>(PATH, { preHandler: [userMiddleware] }, async (req, res) => {
-      const { take: rawTake } = req.query;
-      const take = rawTake ? parseInt(rawTake, 10) : undefined;
-
-      const files = cleanFiles(
-        await prisma.file.findMany({
-          where: {
-            userId: req.user.id,
+export default typedPlugin(
+  async (server) => {
+    server.get(
+      PATH,
+      {
+        schema: {
+          description: 'Get the most recently uploaded files for the authenticated user.',
+          querystring: z.object({
+            take: z.coerce.number().min(1).max(100).default(3),
+          }),
+          response: {
+            200: z.array(fileSchema),
           },
-          select: {
-            ...fileSelect,
-            password: true,
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-          take: take ?? 3,
-        }),
-      );
+          tags: ['auth'],
+        },
+        preHandler: [userMiddleware],
+      },
+      async (req, res) => {
+        const { take } = req.query;
 
-      return res.send(files);
-    });
+        const files = cleanFiles(
+          await prisma.file.findMany({
+            where: {
+              userId: req.user.id,
+            },
+            select: {
+              ...fileSelect,
+              password: true,
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+            take,
+          }),
+        );
 
-    done();
+        return res.send(files);
+      },
+    );
   },
   { name: PATH },
 );

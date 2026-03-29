@@ -1,12 +1,12 @@
 import { Box, Button, Group, Modal, Paper, SimpleGrid, Text, Title, Tooltip } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import { IconCalendarSearch, IconCalendarTime } from '@tabler/icons-react';
-import { lazy, useEffect, useState } from 'react';
+import dayjs from 'dayjs';
+import { lazy, useState } from 'react';
 import FilesUrlsCountGraph from './parts/FilesUrlsCountGraph';
-import { useApiStats } from './useStats';
 import { StatsCardsSkeleton } from './parts/StatsCards';
 import { StatsTablesSkeleton } from './parts/StatsTables';
-import dayjs from 'dayjs';
+import { useApiStats } from './useStats';
 
 const StorageGraph = lazy(() => import('./parts/StorageGraph'));
 const ViewsGraph = lazy(() => import('./parts/ViewsGraph'));
@@ -35,9 +35,10 @@ export default function DashboardMetrics() {
     setDateRange(value);
   };
 
-  useEffect(() => {
-    if (allTime) setDateRange([null, null]);
-  }, [allTime]);
+  const showAllTime = () => {
+    setAllTime(true);
+    setDateRange([null, null]);
+  };
 
   return (
     <>
@@ -118,7 +119,7 @@ export default function DashboardMetrics() {
             size='compact-sm'
             variant='outline'
             leftSection={<IconCalendarTime size='1rem' />}
-            onClick={() => setAllTime(true)}
+            onClick={() => showAllTime()}
             disabled={allTime}
           >
             Show All Time

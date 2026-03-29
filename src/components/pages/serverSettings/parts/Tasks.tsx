@@ -20,6 +20,7 @@ export default function Tasks({
       tasksMaxViewsInterval: '30m',
       tasksThumbnailsInterval: '30m',
       tasksMetricsInterval: '30m',
+      tasksCleanThumbnailsInterval: '1d',
     },
     enhanceGetInputProps: (payload) => ({
       disabled: data?.tampered?.includes(payload.field) || false,
@@ -37,6 +38,7 @@ export default function Tasks({
       tasksMaxViewsInterval: data.settings.tasksMaxViewsInterval ?? '30m',
       tasksThumbnailsInterval: data.settings.tasksThumbnailsInterval ?? '30m',
       tasksMetricsInterval: data.settings.tasksMetricsInterval ?? '30m',
+      tasksCleanThumbnailsInterval: data.settings.tasksCleanThumbnailsInterval ?? '1d',
     });
   }, [data]);
 
@@ -78,6 +80,13 @@ export default function Tasks({
             description='How often to check and generate thumbnails for video files.'
             placeholder='30m'
             {...form.getInputProps('tasksThumbnailsInterval')}
+          />
+
+          <TextInput
+            label='Clean Thumbnails Interval'
+            description='How often to check and delete orphaned thumbnails from the filesystem or database.'
+            placeholder='1d'
+            {...form.getInputProps('tasksCleanThumbnailsInterval')}
           />
         </SimpleGrid>
 

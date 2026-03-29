@@ -5,6 +5,7 @@ import { log } from '../logger';
 import { ParsedConfig } from './read';
 import { PROP_TO_ENV } from './read/env';
 import { checkOutput, COMPRESS_TYPES } from '../compress';
+import ms, { StringValue } from 'ms';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -16,6 +17,21 @@ declare global {
     }
   }
 }
+
+export const MAX_SAFE_TIMEOUT_MS = 2147483647;
+
+export function validateInterval(value: string): boolean {
+  const intervalMs = ms(value as StringValue);
+  if (typeof intervalMs !== 'number') return false;
+
+  return intervalMs <= MAX_SAFE_TIMEOUT_MS;
+}
+
+const intervalSchema = (defaultValue: string) =>
+  z
+    .string()
+    .default(defaultValue)
+    .refine(validateInterval, `Value must be less than or equal to ${MAX_SAFE_TIMEOUT_MS}ms`);
 
 export const discordContent = z
   .object({
@@ -104,11 +120,12 @@ export const schema = z.object({
     enabled: z.boolean().default(true),
   }),
   tasks: z.object({
-    deleteInterval: z.string().default('30min'),
-    clearInvitesInterval: z.string().default('30min'),
-    maxViewsInterval: z.string().default('30min'),
-    thumbnailsInterval: z.string().default('30min'),
-    metricsInterval: z.string().default('30min'),
+    deleteInterval: intervalSchema('30min'),
+    clearInvitesInterval: intervalSchema('30min'),
+    maxViewsInterval: intervalSchema('30min'),
+    thumbnailsInterval: intervalSchema('30min'),
+    metricsInterval: intervalSchema('30min'),
+    cleanThumbnailsInterval: intervalSchema('1d'),
   }),
   files: z.object({
     route: z.string().startsWith('/').min(1).trim().toLowerCase().default('/u'),
@@ -117,6 +134,7 @@ export const schema = z.object({
     disabledExtensions: z.array(z.string()).default([]),
     maxFileSize: z.string().default('100mb'),
     defaultExpiration: z.string().nullable().default(null),
+    maxExpiration: z.string().nullable().default(null),
     assumeMimetypes: z.boolean().default(false),
     defaultDateFormat: z.string().default('YYYY-MM-DD_HH:mm:ss'),
     removeGpsMetadata: z.boolean().default(false),
@@ -126,6 +144,7 @@ export const schema = z.object({
       .enum(COMPRESS_TYPES)
       .default('jpg')
       .refine((v) => checkOutput(v), 'System does not support outputting this image format.'),
+    maxFilesPerUpload: z.number().max(2147483647).min(1).default(1000),
   }),
   urls: z.object({
     route: z.string().startsWith('/').min(1).trim().toLowerCase().default('/go'),
@@ -243,7 +262,22 @@ export const schema = z.object({
       enabled: z.boolean().default(false),
       issuer: z.string().default('Zipline'),
     }),
-    passkeys: z.boolean().default(true),
+    passkeys: z.object({
+      enabled: z.boolean().default(false),
+      rpID: z
+        .string()
+        .trim()
+        .transform((v) => (v.length > 0 ? v : null))
+        .nullable()
+        .default(null),
+      origin: z
+        .string()
+        .trim()
+        .transform((v) => (v.length > 0 ? v : null))
+        .refine((v) => (v ? URL.canParse(v) : true), 'Invalid URL')
+        .nullable()
+        .default(null),
+    }),
   }),
   oauth: z.object({
     bypassLocalLogin: z.boolean().default(false),
@@ -335,18 +369,6 @@ export const schema = z.object({
   httpWebhook: z.object({
     onUpload: z.url().nullable().default(null),
     onShorten: z.url().nullable().default(null),
-  }),
-  ssl: z.object({
-    key: z
-      .string()
-      .transform((s) => resolve(s))
-      .nullable()
-      .default(null),
-    cert: z
-      .string()
-      .transform((s) => resolve(s))
-      .nullable()
-      .default(null),
   }),
   pwa: z.object({
     enabled: z.boolean().default(true),

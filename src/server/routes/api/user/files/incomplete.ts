@@ -1,37 +1,60 @@
 import { prisma } from '@/lib/db';
-import { IncompleteFile } from '@/lib/db/models/incompleteFile';
+import { IncompleteFile, incompleteFileSchema } from '@/lib/db/models/incompleteFile';
 import { log } from '@/lib/logger';
 import { secondlyRatelimit } from '@/lib/ratelimits';
 import { userMiddleware } from '@/server/middleware/user';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
+import z from 'zod';
 
 export type ApiUserFilesIncompleteResponse = IncompleteFile[] | { count: number };
-
-type Body = {
-  id: string[];
-};
 
 const logger = log('api').c('user').c('files').c('incomplete');
 
 export const PATH = '/api/user/files/incomplete';
-export default fastifyPlugin(
-  (server, _, done) => {
-    server.get(PATH, { preHandler: [userMiddleware] }, async (req, res) => {
-      const incompleteFiles = await prisma.incompleteFile.findMany({
-        where: {
-          userId: req.user.id,
-        },
-      });
-
-      return res.send(incompleteFiles);
-    });
-
-    server.delete<{ Body: Body }>(
+export default typedPlugin(
+  async (server) => {
+    server.get(
       PATH,
-      { preHandler: [userMiddleware], ...secondlyRatelimit(1) },
+      {
+        schema: {
+          description: 'List incomplete or still-processing file uploads for the authenticated user.',
+          response: {
+            200: z.array(incompleteFileSchema),
+          },
+          tags: ['auth'],
+        },
+        preHandler: [userMiddleware],
+      },
       async (req, res) => {
-        if (!req.body.id) return res.badRequest('no id array provided');
+        const incompleteFiles = await prisma.incompleteFile.findMany({
+          where: {
+            userId: req.user.id,
+          },
+        });
 
+        return res.send(incompleteFiles);
+      },
+    );
+
+    server.delete(
+      PATH,
+      {
+        schema: {
+          description: 'Delete one or more incomplete file records owned by the authenticated user.',
+          body: z.object({
+            id: z.array(z.string()),
+          }),
+          response: {
+            200: z.object({
+              count: z.number(),
+            }),
+          },
+          tags: ['auth'],
+        },
+        preHandler: [userMiddleware],
+        ...secondlyRatelimit(1),
+      },
+      async (req, res) => {
         const existingFiles = await prisma.incompleteFile.findMany({
           where: {
             id: {
@@ -57,8 +80,6 @@ export default fastifyPlugin(
         return res.send(incompleteFiles);
       },
     );
-
-    done();
   },
   { name: PATH },
 );

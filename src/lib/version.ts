@@ -9,7 +9,7 @@ export function gitSha() {
   if (envValue && envValue !== 'unknown') return envValue;
 
   try {
-    const commitHash = execSync('git rev-parse --short HEAD').toString().trim();
+    const commitHash = execSync('git rev-parse HEAD').toString().trim();
     return commitHash;
   } catch (error) {
     if (!(error instanceof Error)) return null;

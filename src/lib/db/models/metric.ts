@@ -1,14 +1,7 @@
 import { z } from 'zod';
 
-export type Metric = {
-  id: string;
-  createdAt: Date;
-  updatedAt: Date;
-
-  data: MetricData;
-};
-
 export type MetricData = z.infer<typeof metricDataSchema>;
+
 export const metricDataSchema = z.object({
   users: z.number(),
   files: z.number(),
@@ -19,7 +12,7 @@ export const metricDataSchema = z.object({
 
   filesUsers: z.array(
     z.object({
-      username: z.string(),
+      username: z.string().nullable(),
       sum: z.number(),
       storage: z.number(),
       views: z.number(),
@@ -27,7 +20,7 @@ export const metricDataSchema = z.object({
   ),
   urlsUsers: z.array(
     z.object({
-      username: z.string(),
+      username: z.string().nullable(),
       sum: z.number(),
       views: z.number(),
     }),
@@ -39,3 +32,12 @@ export const metricDataSchema = z.object({
     }),
   ),
 });
+
+export const metricSchema = z.object({
+  id: z.string(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+  data: metricDataSchema,
+});
+
+export type Metric = z.infer<typeof metricSchema>;

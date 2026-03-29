@@ -1,9 +1,11 @@
 import { useConfig } from '@/components/ConfigProvider';
 import { bytes } from '@/lib/bytes';
+import { uploadFiles } from '@/lib/client/upload/files';
+import { uploadPartialFiles } from '@/lib/client/upload/partial';
+import { useProgress } from '@/lib/client/upload/useProgress';
 import { humanizeDuration } from '@/lib/relativeTime';
-import { useUploadOptionsStore } from '@/lib/store/uploadOptions';
+import { useUploadOptionsStore } from '@/lib/client/store/uploadOptions';
 import {
-  ActionIcon,
   Button,
   Collapse,
   Grid,
@@ -20,14 +22,14 @@ import {
 import { Dropzone } from '@mantine/dropzone';
 import { useClipboard, useColorScheme } from '@mantine/hooks';
 import { notifications, showNotification } from '@mantine/notifications';
-import { IconDeviceSdCard, IconFiles, IconUpload, IconX } from '@tabler/icons-react';
+import { IconDeviceSdCard, IconFiles, IconTrashFilled, IconUpload, IconX } from '@tabler/icons-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useShallow } from 'zustand/shallow';
 import UploadOptionsButton from '../UploadOptionsButton';
-import { uploadFiles } from '../uploadFiles';
-import { uploadPartialFiles } from '../uploadPartialFiles';
-import ToUploadFile from './ToUploadFile';
+import DropzoneFile from './DropzoneFile';
+
+const initialVisible = 24;
 
 export default function UploadFile({ title, folder }: { title?: string; folder?: string }) {
   const theme = useMantineTheme();
@@ -42,12 +44,12 @@ export default function UploadFile({ title, folder }: { title?: string; folder?:
   );
 
   const [files, setFiles] = useState<File[]>([]);
-  const [progress, setProgress] = useState<{ percent: number; remaining: number; speed: number }>({
-    percent: 0,
-    remaining: 0,
-    speed: 0,
-  });
+  const [visibleCount, setVisibleCount] = useState(initialVisible);
+  const [progress, setProgress] = useProgress();
   const [dropLoading, setLoading] = useState(false);
+
+  const visibleFiles = files.slice(0, visibleCount);
+  const hiddenFiles = Math.max(0, files.length - visibleFiles.length);
 
   const aggSize = useCallback(() => files.reduce((acc, file) => acc + file.size, 0), [files]);
 
@@ -58,11 +60,12 @@ export default function UploadFile({ title, folder }: { title?: string; folder?:
       const blob = e.clipboardData.items[i].getAsFile();
       if (!blob) return;
       setFiles((prev) => [...prev, blob]);
+      setVisibleCount(initialVisible);
       showNotification({ message: `Image ${blob.name} pasted from clipboard`, color: 'blue' });
     }
   }, []);
 
-  const upload = () => {
+  const upload = async () => {
     const toPartialFiles: File[] = files.filter(
       (file) => config.chunks.enabled && file.size >= bytes(config.chunks.max),
     );
@@ -94,7 +97,8 @@ export default function UploadFile({ title, folder }: { title?: string; folder?:
           ),
         });
       }
-      uploadFiles(files, {
+
+      await uploadFiles(files, {
         setFiles,
         setLoading,
         setProgress,
@@ -120,6 +124,7 @@ export default function UploadFile({ title, folder }: { title?: string; folder?:
         e.preventDefault();
       }
     };
+
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -134,16 +139,23 @@ export default function UploadFile({ title, folder }: { title?: string; folder?:
         <Title order={1}>{title ?? 'Upload files'}</Title>
 
         {!folder && (
-          <Tooltip label='View your files'>
-            <ActionIcon component={Link} to='/dashboard/files' variant='outline' radius='sm'>
-              <IconFiles size={18} />
-            </ActionIcon>
-          </Tooltip>
+          <Button
+            variant='outline'
+            size='compact-sm'
+            component={Link}
+            to='/dashboard/files'
+            leftSection={<IconFiles size='1rem' />}
+          >
+            Go to files
+          </Button>
         )}
       </Group>
 
       <Dropzone
-        onDrop={(f) => setFiles((prev) => [...f, ...prev])}
+        onDrop={(f) => {
+          setFiles((prev) => [...f, ...prev]);
+          setVisibleCount(initialVisible);
+        }}
         my='sm'
         loading={dropLoading}
         disabled={dropLoading}
@@ -209,26 +221,64 @@ export default function UploadFile({ title, folder }: { title?: string; folder?:
       </Collapse>
 
       <Grid grow my='sm'>
-        {files.map((file, i) => (
+        {visibleFiles.map((file, i) => (
           <Grid.Col span={3} key={i}>
-            <ToUploadFile
+            <DropzoneFile
               loading={dropLoading}
               file={file}
-              onDelete={() => setFiles(files.filter((_, j) => i !== j))}
+              onDelete={() => setFiles((prev) => prev.filter((_, j) => i !== j))}
             />
           </Grid.Col>
         ))}
       </Grid>
 
+      {hiddenFiles > 0 && (
+        <Group justify='center' gap='xs' my='xs'>
+          <Text size='sm' c='dimmed'>
+            {hiddenFiles} more file{hiddenFiles !== 1 && 's'} hidden{' '}
+          </Text>
+          <Button
+            size='compact-sm'
+            variant='light'
+            disabled={dropLoading}
+            onClick={() => setVisibleCount((prev) => Math.min(files.length, prev + initialVisible))}
+          >
+            Show more
+          </Button>
+          <Tooltip label='This may cause performance issues if there are a lot of files' hidden={dropLoading}>
+            <Button
+              size='compact-sm'
+              variant='subtle'
+              disabled={dropLoading}
+              onClick={() => setVisibleCount(files.length)}
+            >
+              Show all
+            </Button>
+          </Tooltip>
+        </Group>
+      )}
+
       <Group justify='right' gap='sm' my='md'>
+        <Button
+          variant='outline'
+          color='red'
+          leftSection={<IconTrashFilled size='1rem' />}
+          disabled={files.length === 0 || dropLoading}
+          onClick={() => {
+            setFiles([]);
+            setVisibleCount(initialVisible);
+          }}
+        >
+          Clear all
+        </Button>
         <UploadOptionsButton folder={folder} numFiles={files.length} />
         <Button
           variant='outline'
-          leftSection={<IconUpload size={18} />}
+          leftSection={<IconUpload size='1rem' />}
           disabled={files.length === 0 || dropLoading}
           onClick={upload}
         >
-          Upload {files.length} files ({bytes(aggSize())})
+          Upload {files.length} file{files.length !== 1 && 's'} ({bytes(aggSize())})
         </Button>
       </Group>
     </>

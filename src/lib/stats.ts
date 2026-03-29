@@ -39,9 +39,12 @@ export async function queryStats(): Promise<MetricData> {
   });
 
   for (let i = 0; i !== filesByUser.length; ++i) {
+    const id = filesByUser[i].userId;
+    if (!id) continue;
+
     const user = await prisma.user.findUnique({
       where: {
-        id: filesByUser[i].userId!,
+        id,
       },
     });
 
@@ -49,9 +52,12 @@ export async function queryStats(): Promise<MetricData> {
   }
 
   for (let i = 0; i !== urlsByUser.length; ++i) {
+    const id = urlsByUser[i].userId;
+    if (!id) continue;
+
     const user = await prisma.user.findUnique({
       where: {
-        id: urlsByUser[i].userId!,
+        id,
       },
     });
 

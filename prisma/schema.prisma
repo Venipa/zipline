@@ -1,7 +1,7 @@
 generator client {
   provider        = "prisma-client"
-  output = "../src/prisma"
-  moduleFormat = "cjs"
+  output          = "../src/prisma"
+  moduleFormat    = "cjs"
   previewFeatures = ["queryCompiler", "driverAdapters"]
 }
 
@@ -31,19 +31,22 @@ model Zipline {
   tasksMaxViewsInterval     String @default("30m")
   tasksThumbnailsInterval   String @default("30m")
   tasksMetricsInterval      String @default("30m")
+  tasksCleanThumbnailsInterval      String @default("1d")
 
-  filesRoute                          String   @default("/u")
-  filesLength                         Int      @default(6)
-  filesDefaultFormat                  String   @default("random")
-  filesDisabledExtensions             String[]
-  filesMaxFileSize                    String   @default("100mb")
-  filesDefaultExpiration              String?
-  filesAssumeMimetypes                Boolean  @default(false)
-  filesDefaultDateFormat              String   @default("YYYY-MM-DD_HH:mm:ss")
-  filesRemoveGpsMetadata              Boolean  @default(false)
-  filesRandomWordsNumAdjectives       Int      @default(2)
-  filesRandomWordsSeparator           String   @default("-")
-  filesDefaultCompressionFormat       String?  @default("jpg")
+  filesRoute                    String   @default("/u")
+  filesLength                   Int      @default(6)
+  filesDefaultFormat            String   @default("random")
+  filesDisabledExtensions       String[]
+  filesMaxFileSize              String   @default("100mb")
+  filesDefaultExpiration        String?
+  filesMaxExpiration            String?
+  filesAssumeMimetypes          Boolean  @default(false)
+  filesDefaultDateFormat        String   @default("YYYY-MM-DD_HH:mm:ss")
+  filesRemoveGpsMetadata        Boolean  @default(false)
+  filesRandomWordsNumAdjectives Int      @default(2)
+  filesRandomWordsSeparator     String   @default("-")
+  filesDefaultCompressionFormat String?  @default("jpg")
+  filesMaxFilesPerUpload        Int      @default(1000)
 
   urlsRoute  String @default("/go")
   urlsLength Int    @default(6)
@@ -64,7 +67,7 @@ model Zipline {
   featuresMetricsShowUserSpecific Boolean @default(true)
 
   featuresVersionChecking Boolean @default(true)
-  featuresVersionAPI      String @default("https://zipline-version.diced.sh")
+  featuresVersionAPI      String  @default("https://zipline-version.diced.sh")
 
   invitesEnabled Boolean @default(true)
   invitesLength  Int     @default(6)
@@ -107,7 +110,10 @@ model Zipline {
 
   mfaTotpEnabled Boolean @default(false)
   mfaTotpIssuer  String  @default("Zipline")
-  mfaPasskeys    Boolean @default(false)
+
+  mfaPasskeysEnabled Boolean @default(false)
+  mfaPasskeysRpID    String?
+  mfaPasskeysOrigin  String?
 
   ratelimitEnabled     Boolean  @default(true)
   ratelimitMax         Int      @default(10)
@@ -141,7 +147,7 @@ model Zipline {
   pwaThemeColor      String  @default("#000000")
   pwaBackgroundColor String  @default("#000000")
 
-  domains            String[] @default([])
+  domains String[] @default([])
 }
 
 model User {
@@ -158,7 +164,7 @@ model User {
 
   totpSecret String?
   passkeys   UserPasskey[]
-  sessions   String[]
+  sessions   UserSession[]
 
   quota UserQuota?
 
@@ -181,6 +187,18 @@ model Export {
   path      String
   files     Int
   size      String
+
+  User   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  userId String
+}
+
+model UserSession {
+  id String @id 
+  createdAt DateTime @default(now())
+
+  ua String
+  client String
+  device String
 
   User   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   userId String
@@ -265,6 +283,7 @@ model File {
   maxViews     Int?
   favorite     Boolean @default(false)
   password     String?
+  anonymous    Boolean @default(false)
 
   tags Tag[]
 
@@ -295,11 +314,15 @@ model Folder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  name   String
-  public Boolean @default(false)
+  name         String
+  public       Boolean @default(false)
   allowUploads Boolean @default(false)
 
   files File[]
+
+  parentId String?
+  parent   Folder?  @relation("FolderToFolder", fields: [parentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  children Folder[] @relation("FolderToFolder")
 
   User   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   userId String

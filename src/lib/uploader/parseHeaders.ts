@@ -2,6 +2,7 @@ import ms from 'ms';
 import { Config } from '../config/validate';
 import { checkOutput, COMPRESS_TYPES, CompressType } from '../compress';
 import { config } from '../config';
+import { sanitizeExtension, sanitizeFilename } from '../fs';
 
 // from ms@3.0.0-canary.1
 type Unit =
@@ -119,7 +120,9 @@ export function humanTime(string: StringValue | string): Date | null {
 
 export function parseExpiry(header: string): Date | null {
   if (!header) return null;
-  header = header.toLowerCase();
+  header = header.trim().toLowerCase();
+
+  if (header === 'never') return null;
 
   if (header.startsWith('date=')) {
     const date = new Date(header.substring(5));
@@ -165,6 +168,18 @@ export function parseHeaders(headers: UploadHeaders, fileConfig: Config['files']
       const expiresAt = parseExpiry(headers['x-zipline-deletes-at']);
       if (!expiresAt) return headerError('x-zipline-deletes-at', 'Invalid expiry date');
 
+      if (fileConfig.maxExpiration) {
+        const maxExpiryTime = ms(fileConfig.maxExpiration as StringValue);
+        const requestedExpiryTime = expiresAt.getTime() - Date.now();
+
+        if (requestedExpiryTime > maxExpiryTime) {
+          return headerError(
+            'x-zipline-deletes-at',
+            `Expiry exceeds maximum allowed expiration of ${fileConfig.maxExpiration}`,
+          );
+        }
+      }
+
       response.deletesAt = expiresAt;
     }
   } else {
@@ -185,13 +200,8 @@ export function parseHeaders(headers: UploadHeaders, fileConfig: Config['files']
 
   const imageCompressionPercent = headers['x-zipline-image-compression-percent'];
   const imageCompressionType = headers['x-zipline-image-compression-type'];
-  if (imageCompressionType) {
-    if (!imageCompressionPercent)
-      return headerError(
-        'x-zipline-image-compression-percent',
-        'missing "x-zipline-image-compression-percent" when "x-zipline-image-compression-type" is provided',
-      );
 
+  if (imageCompressionType) {
     if (!COMPRESS_TYPES.includes(imageCompressionType))
       return headerError(
         'x-zipline-image-compression-type',
@@ -204,13 +214,15 @@ export function parseHeaders(headers: UploadHeaders, fileConfig: Config['files']
         `Compression type "${imageCompressionType}" is not supported on the system.`,
       );
 
-    const percent = parsePercent('x-zipline-image-compression-percent', imageCompressionPercent);
-    if (typeof percent === 'object') return percent;
+    if (imageCompressionPercent) {
+      const percent = parsePercent('x-zipline-image-compression-percent', imageCompressionPercent);
+      if (typeof percent === 'object') return percent;
 
-    response.imageCompression = {
-      type: imageCompressionType,
-      percent,
-    };
+      response.imageCompression = {
+        type: imageCompressionType,
+        percent,
+      };
+    }
   } else if (imageCompressionPercent) {
     const percent = parsePercent('x-zipline-image-compression-percent', imageCompressionPercent);
     if (typeof percent === 'object') return percent;
@@ -244,12 +256,19 @@ export function parseHeaders(headers: UploadHeaders, fileConfig: Config['files']
   response.overrides = {};
 
   const filename = headers['x-zipline-filename'];
-  if (filename) response.overrides.filename = filename;
+  if (filename) {
+    const fn = sanitizeFilename(filename);
+    if (!fn) return headerError('x-zipline-filename', 'Invalid filename');
+
+    response.overrides.filename = fn;
+  }
 
   const extension = headers['x-zipline-file-extension'];
   if (extension) {
-    if (!extension.startsWith('.')) response.overrides.extension = `.${extension}`;
-    else response.overrides.extension = extension;
+    const ext = sanitizeExtension(extension);
+    if (!ext) return headerError('x-zipline-file-extension', 'Invalid file extension');
+
+    response.overrides.extension = ext;
   }
 
   const returnDomain = headers['x-zipline-domain'];

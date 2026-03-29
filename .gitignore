@@ -49,3 +49,5 @@ uploads*/
 *.crt
 *.key
 src/prisma
+.memory.log*
+openapi.json

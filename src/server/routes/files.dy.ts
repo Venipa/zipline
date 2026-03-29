@@ -28,6 +28,7 @@ export async function filesRoute(
 
   if (file.User?.view.enabled) return res.redirect(`/view/${encodeURIComponent(file.name)}`);
   if (file.type.startsWith('text/')) return res.redirect(`/view/${encodeURIComponent(file.name)}`);
+  if (file.password) return res.redirect(`/view/${encodeURIComponent(file.name)}`);
 
   return rawFileHandler(req, res);
 }

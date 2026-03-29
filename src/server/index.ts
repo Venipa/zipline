@@ -1,3 +1,4 @@
+import { ApiError } from '@/lib/api/errors';
 import { bytes } from '@/lib/bytes';
 import { reloadSettings } from '@/lib/config';
 import { checkDbVars, REQUIRED_DB_VARS } from '@/lib/config/read/env';
@@ -5,9 +6,9 @@ import { getDatasource } from '@/lib/datasource';
 import { prisma } from '@/lib/db';
 import { runMigrations } from '@/lib/db/migration';
 import { log } from '@/lib/logger';
-import { notNull } from '@/lib/primitive';
 import { isAdministrator } from '@/lib/role';
 import { Tasks } from '@/lib/tasks';
+import cleanThumbnails from '@/lib/tasks/run/cleanThumbnails';
 import clearInvites from '@/lib/tasks/run/clearInvites';
 import deleteFiles from '@/lib/tasks/run/deleteFiles';
 import maxViews from '@/lib/tasks/run/maxViews';
@@ -19,8 +20,17 @@ import { fastifyMultipart } from '@fastify/multipart';
 import { fastifyRateLimit } from '@fastify/rate-limit';
 import { fastifySensible } from '@fastify/sensible';
 import { fastifyStatic } from '@fastify/static';
+import fastifySwagger from '@fastify/swagger';
 import fastify from 'fastify';
-import { mkdir, readFile } from 'fs/promises';
+import {
+  hasZodFastifySchemaValidationErrors,
+  isResponseSerializationError,
+  jsonSchemaTransform,
+  serializerCompiler,
+  validatorCompiler,
+  ZodTypeProvider,
+} from 'fastify-type-provider-zod';
+import { appendFile, mkdir, writeFile } from 'fs/promises';
 import ms, { StringValue } from 'ms';
 import { version } from '../../package.json';
 import { checkRateLimit } from './plugins/checkRateLimit';
@@ -69,18 +79,26 @@ async function main() {
   logger.debug('creating server', {
     port: config.core.port,
     hostname: config.core.hostname,
-    ssl: notNull(config.ssl.key, config.ssl.cert),
     trustProxy: config.core.trustProxy,
   });
 
   const server = fastify({
-    https: notNull(config.ssl.key, config.ssl.cert)
-      ? {
-          key: await readFile(config.ssl.key!, 'utf8'),
-          cert: await readFile(config.ssl.cert!, 'utf8'),
-        }
-      : null,
     trustProxy: config.core.trustProxy,
+  }).withTypeProvider<ZodTypeProvider>();
+
+  server.setValidatorCompiler(validatorCompiler);
+  server.setSerializerCompiler(serializerCompiler);
+
+  await server.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: 'Zipline',
+        description: 'Zipline API',
+        version: version,
+      },
+      servers: [],
+    },
+    transform: jsonSchemaTransform,
   });
 
   await server.register(fastifyCookie, {
@@ -95,6 +113,7 @@ async function main() {
   await server.register(fastifyMultipart, {
     limits: {
       fileSize: bytes(config.files.maxFileSize),
+      parts: config.files.maxFilesPerUpload,
     },
   });
 
@@ -209,20 +228,59 @@ async function main() {
     }
   });
 
-  server.setErrorHandler((error, _, res) => {
-    if (error.statusCode) {
-      res.status(error.statusCode);
-      res.send({ error: error.message, statusCode: error.statusCode });
-    } else {
-      if (process.env.DEBUG === 'zipline') console.error(error);
+  server.setErrorHandler((error: any, _, res) => {
+    if (hasZodFastifySchemaValidationErrors(error)) {
+      return res.status(400).send({
+        error: error.message ?? 'E1000: Invalid response schema',
+        statusCode: 400,
+        code: 1000,
+        issues: error.validation,
+      });
+    }
 
-      res.status(500);
-      res.send({ error: 'Internal Server Error', statusCode: 500, message: error.message });
+    if (isResponseSerializationError(error)) {
+      console.log(error);
+
+      return res.status(500).send({
+        error: 'E1000: Response serialization error',
+        statusCode: 500,
+        code: 1000,
+        details: error.message,
+      });
+    }
+
+    if (error instanceof ApiError) {
+      const apiError = error as ApiError;
+      return res.status(apiError.status).send(apiError.toJSON());
+    }
+
+    if (error.statusCode) {
+      return res.status(error.statusCode).send({ error: error.message, statusCode: error.statusCode });
+    } else {
+      console.error(error);
+
+      return res.status(500).send({
+        code: 9000,
+        error: 'E9000: Internal Server Error',
+        statusCode: 500,
+      });
     }
   });
 
   const tasks = new Tasks();
   server.decorate('tasks', tasks);
+
+  if (process.env.ZIPLINE_OUTPUT_OPENAPI === 'true') {
+    server.ready(async (a) => {
+      console.log(a);
+      const openapi = server.swagger();
+      await writeFile('./openapi.json', JSON.stringify(openapi, null, 2), 'utf8');
+
+      logger.info('OpenAPI schema written to openapi.json');
+
+      process.exit(0);
+    });
+  }
 
   await server.listen({
     port: config.core.port,
@@ -235,6 +293,11 @@ async function main() {
   tasks.interval('deletefiles', ms(config.tasks.deleteInterval as StringValue), deleteFiles(prisma));
   tasks.interval('maxviews', ms(config.tasks.maxViewsInterval as StringValue), maxViews(prisma));
   tasks.interval('clearinvites', ms(config.tasks.clearInvitesInterval as StringValue), clearInvites(prisma));
+  tasks.interval(
+    'cleanthumbnails',
+    ms(config.tasks.cleanThumbnailsInterval as StringValue),
+    cleanThumbnails(prisma),
+  );
 
   if (config.features.metrics)
     tasks.interval('metrics', ms(config.tasks.metricsInterval as StringValue), metrics(prisma));
@@ -284,6 +347,18 @@ async function main() {
   }
 
   tasks.start();
+
+  if (process.env.DEBUG_MONITOR_MEMORY === 'true') {
+    await writeFile('.memory.log', '', 'utf8');
+    setInterval(async () => {
+      const mu = process.memoryUsage();
+      const cpu = process.cpuUsage();
+
+      const entry = `${Math.floor(Date.now() / 1000)},${mu.rss},${mu.heapUsed},${mu.heapTotal},${mu.external},${mu.arrayBuffers},${cpu.system},${cpu.user}\n`;
+
+      await appendFile('.memory.log', entry, 'utf8');
+    }, 1000);
+  }
 }
 
 main();

@@ -1,7 +1,7 @@
 import { Response } from '@/lib/api/response';
 import { User } from '@/lib/db/models/user';
 import { fetchApi } from '@/lib/fetchApi';
-import { useUserStore } from '@/lib/store/user';
+import { useUserStore } from '@/lib/client/store/user';
 import {
   Anchor,
   Box,
@@ -15,6 +15,7 @@ import {
   Stack,
   Text,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconShieldLockFilled } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -23,13 +24,14 @@ import useSWR, { mutate } from 'swr';
 import { useShallow } from 'zustand/shallow';
 
 export default function TwoFAButton() {
+  const size = useMediaQuery('(max-width: 600px)') ? 'sm' : 'xl';
   const [user, setUser] = useUserStore(useShallow((state) => [state.user, state.setUser]));
 
   const [totpOpen, setTotpOpen] = useState(false);
   const {
-    data: twoData,
-    error: twoError,
-    isLoading: twoLoading,
+    data: mfaData,
+    error: mfaError,
+    isLoading: mfaLoading,
   } = useSWR<Extract<Response['/api/user/mfa/totp'], { secret: string; qrcode: string }>>(
     totpOpen && !user?.totpSecret ? '/api/user/mfa/totp' : null,
     null,
@@ -51,7 +53,7 @@ export default function TwoFAButton() {
       'POST',
       {
         code: pin,
-        secret: twoData!.secret,
+        secret: mfaData!.secret,
       },
     );
 
@@ -140,13 +142,21 @@ export default function TwoFAButton() {
                 >
                   Google Authenticator
                 </Anchor>
-                , and{' '}
+                ,{' '}
                 <Anchor
                   component={Link}
                   to='https://www.microsoft.com/en-us/security/mobile-authenticator-app'
                   target='_blank'
                 >
                   Microsoft Authenticator
+                </Anchor>
+                , and{' '}
+                <Anchor
+                  component={Link}
+                  to='https://support.apple.com/guide/iphone/automatically-fill-in-verification-codes-ipha6173c19f/ios'
+                  target='_blank'
+                >
+                  Apple Passwords
                 </Anchor>
                 .
               </Text>
@@ -156,25 +166,20 @@ export default function TwoFAButton() {
               </Text>
 
               <Box pos='relative'>
-                {twoLoading && !twoError ? (
+                {mfaLoading && !mfaError ? (
                   <Box w={180} h={180}>
                     <LoadingOverlay visible pos='relative' />
                   </Box>
                 ) : (
                   <Center>
-                    <Image
-                      width={180}
-                      height={180}
-                      src={twoData?.qrcode}
-                      alt={'qr code ' + twoData?.secret}
-                    />
+                    <Image h={180} w={180} src={mfaData?.qrcode} alt={'qr code ' + mfaData?.secret} />
                   </Center>
                 )}
               </Box>
 
               <Text size='sm' c='dimmed'>
                 If you can&apos;t scan the QR code, you can manually enter the following code into your
-                authenticator app: <Code>{twoData?.secret ?? ''}</Code>
+                authenticator app: <Code>{mfaData?.secret ?? ''}</Code>
               </Text>
 
               <Text size='sm' c='dimmed'>
@@ -194,7 +199,7 @@ export default function TwoFAButton() {
               autoFocus={true}
               error={!!pinError}
               disabled={pinDisabled}
-              size='xl'
+              size={size}
             />
           </Center>
           {pinError && (

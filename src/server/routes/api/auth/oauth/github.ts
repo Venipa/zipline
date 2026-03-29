@@ -3,9 +3,9 @@ import { config } from '@/lib/config';
 import { encrypt } from '@/lib/crypto';
 import Logger from '@/lib/logger';
 import enabled from '@/lib/oauth/enabled';
-import { githubAuth } from '@/lib/oauth/providerUtil';
+import { githubAuth } from '@/lib/oauth/providers';
 import { OAuthQuery, OAuthResponse } from '@/server/plugins/oauth';
-import fastifyPlugin from 'fastify-plugin';
+import typedPlugin from '@/server/typedPlugin';
 
 async function githubOauth({ code, state }: OAuthQuery, logger: Logger): Promise<OAuthResponse> {
   if (!config.features.oauthRegistration)
@@ -88,13 +88,11 @@ async function githubOauth({ code, state }: OAuthQuery, logger: Logger): Promise
 }
 
 export const PATH = '/api/auth/oauth/github';
-export default fastifyPlugin(
-  (server, _, done) => {
+export default typedPlugin(
+  async (server) => {
     server.get(PATH, async (req, res) => {
       return req.oauthHandle(res, 'GITHUB', githubOauth);
     });
-
-    done();
   },
   { name: PATH },
 );

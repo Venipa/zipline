@@ -19,6 +19,7 @@ type ApiPaginationOptions = {
     | 'favorite';
   order?: 'asc' | 'desc';
   id?: string;
+  folderId?: string;
   search?: {
     field?: string;
     query: string;
@@ -45,6 +46,7 @@ const fetcher = async (
     if (options.search.field) searchParams.append('searchField', options.search.field);
     searchParams.append('searchQuery', options.search.query);
   }
+  if (options.folderId) searchParams.append('folder', options.folderId);
 
   const res = await fetch(`/api/user/files${searchParams.toString() ? `?${searchParams.toString()}` : ''}`);
 

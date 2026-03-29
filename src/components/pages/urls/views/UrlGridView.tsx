@@ -6,14 +6,24 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import EditUrlModal from '../EditUrlModal';
 import UrlCard from '../UrlCard';
+import QRCodeModal from '@/components/QRCodeModal';
+import { formatRootUrl } from '@/lib/url';
+import { useConfig } from '@/components/ConfigProvider';
 
 export default function UrlGridView() {
+  const config = useConfig();
   const { data: urls, isLoading } = useSWR<Extract<Response['/api/user/urls'], Url[]>>('/api/user/urls');
   const [selectedUrl, setSelectedUrl] = useState<Url | null>(null);
+  const [qrOpen, setQrOpen] = useState<Url | null>(null);
 
   return (
     <>
-      <EditUrlModal url={selectedUrl} onClose={() => setSelectedUrl(null)} open={!!selectedUrl} />
+      <EditUrlModal url={selectedUrl} onClose={() => setSelectedUrl(null)} />
+      <QRCodeModal
+        url={qrOpen ? formatRootUrl(config.urls.route, qrOpen.vanity ?? qrOpen.code) : ''}
+        opened={!!qrOpen}
+        onClose={() => setQrOpen(null)}
+      />
 
       {isLoading ? (
         <SimpleGrid
@@ -42,7 +52,7 @@ export default function UrlGridView() {
           pos='relative'
         >
           {urls?.map((url) => (
-            <UrlCard setSelectedUrl={setSelectedUrl} key={url.id} url={url} />
+            <UrlCard setSelectedUrl={setSelectedUrl} setQrOpen={setQrOpen} key={url.id} url={url} />
           ))}
         </SimpleGrid>
       ) : (

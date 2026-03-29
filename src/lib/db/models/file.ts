@@ -1,31 +1,7 @@
 import { config } from '@/lib/config';
 import { formatRootUrl } from '@/lib/url';
-import { Tag, tagSelectNoFiles } from './tag';
-
-export type File = {
-  createdAt: Date;
-  updatedAt: Date;
-  deletesAt: Date | null;
-  favorite: boolean;
-  id: string;
-  originalName: string | null;
-  name: string;
-  size: number;
-  type: string;
-  views: number;
-  maxViews?: number | null;
-  password?: string | boolean | null;
-  folderId: string | null;
-
-  thumbnail: {
-    path: string;
-  } | null;
-
-  tags?: Tag[];
-
-  url?: string;
-  similarity?: number;
-};
+import { z } from 'zod';
+import { tagSchema, tagSelectNoFiles } from './tag';
 
 export const fileSelect = {
   createdAt: true,
@@ -40,6 +16,7 @@ export const fileSelect = {
   views: true,
   maxViews: true,
   folderId: true,
+  anonymous: true,
   thumbnail: {
     select: {
       path: true,
@@ -63,12 +40,44 @@ export function cleanFiles(files: File[], stringifyDates = false) {
     const file = files[i];
     if (file.password) file.password = true;
 
-    (file as any).createdAt = stringifyDates ? file.createdAt.toISOString() : file.createdAt;
-    (file as any).updatedAt = stringifyDates ? file.updatedAt.toISOString() : file.updatedAt;
-    (file as any).deletesAt = stringifyDates ? file.deletesAt?.toISOString() || null : file.deletesAt;
+    if (stringifyDates) {
+      if (file.createdAt instanceof Date) file.createdAt = file.createdAt.toISOString();
+      if (file.updatedAt instanceof Date) file.updatedAt = file.updatedAt.toISOString();
+      if (file.deletesAt && file.deletesAt instanceof Date) file.deletesAt = file.deletesAt.toISOString();
+    }
 
     file.url = formatRootUrl(config.files.route, file.name);
   }
 
   return files;
 }
+
+export const fileSchema = z.object({
+  createdAt: z.union([z.date(), z.string()]),
+  updatedAt: z.union([z.date(), z.string()]),
+  deletesAt: z.union([z.date(), z.string()]).nullable(),
+  favorite: z.boolean(),
+  id: z.string(),
+  originalName: z.string().nullable(),
+  name: z.string(),
+  size: z.number(),
+  type: z.string(),
+  views: z.number(),
+  maxViews: z.number().nullish(),
+  password: z.union([z.string(), z.boolean()]).nullish(),
+  folderId: z.string().nullable(),
+  anonymous: z.boolean().nullish(),
+
+  thumbnail: z
+    .object({
+      path: z.string(),
+    })
+    .nullable(),
+
+  tags: z.array(tagSchema).optional(),
+
+  url: z.string().optional(),
+  similarity: z.number().optional(),
+});
+
+export type File = z.infer<typeof fileSchema>;

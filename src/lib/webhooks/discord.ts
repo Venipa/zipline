@@ -96,7 +96,7 @@ export function buildResponse(
             title: content.embed.title,
             description: content.embed.description,
             color: hexString(content.embed.color),
-            timestamp: content.embed.timestamp ? (file! || url!).createdAt.toISOString() : null,
+            timestamp: content.embed.timestamp ? (<Date>(file! || url!).createdAt).toISOString() : null,
             footer: content.embed.footer
               ? {
                   text: content.embed.footer,

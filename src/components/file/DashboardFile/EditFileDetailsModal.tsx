@@ -1,9 +1,10 @@
 import { File } from '@/lib/db/models/file';
 import { fetchApi } from '@/lib/fetchApi';
+import useObjectState from '@/lib/client/hooks/useObjectState';
 import { Button, Divider, Modal, NumberInput, PasswordInput, Stack, TextInput } from '@mantine/core';
 import { showNotification } from '@mantine/notifications';
 import { IconEye, IconKey, IconPencil, IconPencilOff, IconTrashFilled } from '@tabler/icons-react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { mutateFiles } from '../actions';
 
 export default function EditFileDetailsModal({
@@ -15,13 +16,41 @@ export default function EditFileDetailsModal({
   file: File | null;
   onClose: () => void;
 }) {
-  if (!file) return null;
+  const [formData, setFormData] = useObjectState<{
+    name: string;
+    maxViews: number | null;
+    password: string | null;
+    originalName: string | null;
+    type: string | null;
+  }>({
+    name: file?.name ?? '',
+    maxViews: file?.maxViews ?? null,
+    password: file?.password ? '' : null,
+    originalName: file?.originalName ?? null,
+    type: file?.type ?? null,
+  });
 
-  const [name, setName] = useState<string>(file.name ?? '');
-  const [maxViews, setMaxViews] = useState<number | null>(file?.maxViews ?? null);
-  const [password, setPassword] = useState<string | null>('');
-  const [originalName, setOriginalName] = useState<string | null>(file?.originalName ?? null);
-  const [type, setType] = useState<string | null>(file?.type ?? null);
+  useEffect(() => {
+    if (open) {
+      setFormData({
+        name: file?.name ?? '',
+        maxViews: file?.maxViews ?? null,
+        password: file?.password ? '' : null,
+        originalName: file?.originalName ?? null,
+        type: file?.type ?? null,
+      });
+    } else {
+      setFormData({
+        name: '',
+        maxViews: null,
+        password: null,
+        originalName: null,
+        type: null,
+      });
+    }
+  }, [open, file]);
+
+  if (!file) return null;
 
   const handleRemovePassword = async () => {
     if (!file.password) return;
@@ -58,12 +87,12 @@ export default function EditFileDetailsModal({
       name?: string;
     } = {};
 
-    if (maxViews !== null) data['maxViews'] = maxViews;
-    if (originalName !== null) data['originalName'] = originalName?.trim();
-    if (type !== null) data['type'] = type?.trim();
-    if (name !== file.name) data['name'] = name.trim();
+    if (formData.maxViews !== null) data['maxViews'] = formData.maxViews;
+    if (formData.originalName !== null) data['originalName'] = formData.originalName?.trim();
+    if (formData.type !== null) data['type'] = formData.type?.trim();
+    if (formData.name !== file.name) data['name'] = formData.name.trim();
 
-    const passwordTrimmed = password?.trim();
+    const passwordTrimmed = formData.password?.trim();
     if (passwordTrimmed !== '') data['password'] = passwordTrimmed;
 
     const { error } = await fetchApi(`/api/user/files/${file.id}`, 'PATCH', data);
@@ -85,20 +114,10 @@ export default function EditFileDetailsModal({
 
       onClose();
 
-      setPassword(null);
+      setFormData('password', null);
       mutateFiles();
     }
   };
-
-  useEffect(() => {
-    if (open) {
-      setName(file.name ?? '');
-      setMaxViews(file.maxViews ?? null);
-      setPassword(file.password ? '' : null);
-      setOriginalName(file.originalName ?? null);
-      setType(file.type ?? null);
-    }
-  }, [open, file]);
 
   return (
     <Modal zIndex={300} title={`Editing "${file.name}"`} onClose={onClose} opened={open}>
@@ -106,8 +125,8 @@ export default function EditFileDetailsModal({
         <TextInput
           label='Name'
           description='Rename the file.'
-          value={name}
-          onChange={(event) => setName(event.currentTarget.value.trim())}
+          value={formData.name}
+          onChange={(event) => setFormData('name', event.currentTarget.value.trim())}
         />
 
         <NumberInput
@@ -115,17 +134,20 @@ export default function EditFileDetailsModal({
           placeholder='Unlimited'
           description='The maximum number of views this file can have before it is deleted. Leave blank to allow as many views as you want.'
           min={0}
-          value={maxViews || ''}
-          onChange={(value) => setMaxViews(value === '' ? null : Number(value))}
+          value={formData.maxViews || ''}
+          onChange={(value) => setFormData('maxViews', value === '' ? null : Number(value))}
           leftSection={<IconEye size='1rem' />}
         />
 
         <TextInput
           label='Original Name'
           description='Add an original name. When downloading this file, instead of using the generated file name (if chosen), it will download with this "original name" instead.'
-          value={originalName ?? ''}
+          value={formData.originalName ?? ''}
           onChange={(event) =>
-            setOriginalName(event.currentTarget.value.trim() === '' ? null : event.currentTarget.value.trim())
+            setFormData(
+              'originalName',
+              event.currentTarget.value.trim() === '' ? null : event.currentTarget.value.trim(),
+            )
           }
         />
 
@@ -137,9 +159,12 @@ export default function EditFileDetailsModal({
               doing, this can mess with how Zipline renders specific file types.
             </>
           }
-          value={type ?? ''}
+          value={formData.type ?? ''}
           onChange={(event) =>
-            setType(event.currentTarget.value.trim() === '' ? null : event.currentTarget.value.trim())
+            setFormData(
+              'type',
+              event.currentTarget.value.trim() === '' ? null : event.currentTarget.value.trim(),
+            )
           }
           c='red'
         />
@@ -159,10 +184,13 @@ export default function EditFileDetailsModal({
           <PasswordInput
             label='Password'
             description='Set a password for this file. Leave blank to disable password protection.'
-            value={password ?? ''}
+            value={formData.password ?? ''}
             autoComplete='off'
             onChange={(event) =>
-              setPassword(event.currentTarget.value.trim() === '' ? null : event.currentTarget.value.trim())
+              setFormData(
+                'password',
+                event.currentTarget.value.trim() === '' ? null : event.currentTarget.value.trim(),
+              )
             }
             leftSection={<IconKey size='1rem' />}
           />

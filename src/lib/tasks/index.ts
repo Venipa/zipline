@@ -1,6 +1,7 @@
 import { Worker } from 'worker_threads';
 import Logger, { log } from '../logger';
 import { config } from '../config';
+import { MAX_SAFE_TIMEOUT_MS } from '../config/validate';
 
 export interface Task {
   id: string;
@@ -77,6 +78,17 @@ export class Tasks {
       this.logger.debug('not starting interval', {
         id: task.id,
         interval: task.interval,
+      });
+
+      return;
+    }
+
+    if (task.interval > MAX_SAFE_TIMEOUT_MS) {
+      this.logger.error('interval exceeds maximum safe timeout', {
+        id: task.id,
+        interval: task.interval,
+        maxSafeTimeout: MAX_SAFE_TIMEOUT_MS,
+        message: 'Interval exceeds JavaScript timer limit (~24 days). Task will not be started.',
       });
 
       return;
