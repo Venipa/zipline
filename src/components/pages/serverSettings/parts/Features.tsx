@@ -35,6 +35,7 @@ export default function Features({
       featuresThumbnailsEnabled: true,
       featuresThumbnailsNumberThreads: 4,
       featuresThumbnailsFormat: 'jpg',
+      featuresThumbnailsOnUpload: true,
       featuresMetricsEnabled: true,
       featuresMetricsAdminOnly: false,
       featuresMetricsShowUserSpecific: true,
@@ -61,6 +62,7 @@ export default function Features({
       featuresThumbnailsEnabled: data.settings.featuresThumbnailsEnabled ?? true,
       featuresThumbnailsNumberThreads: data.settings.featuresThumbnailsNumberThreads ?? 4,
       featuresThumbnailsFormat: data.settings.featuresThumbnailsFormat ?? 'jpg',
+      featuresThumbnailsOnUpload: data.settings.featuresThumbnailsOnUpload ?? false,
       featuresMetricsEnabled: data.settings.featuresMetricsEnabled ?? true,
       featuresMetricsAdminOnly: data.settings.featuresMetricsAdminOnly ?? false,
       featuresMetricsShowUserSpecific: data.settings.featuresMetricsShowUserSpecific ?? true,
@@ -155,6 +157,12 @@ export default function Features({
               { value: 'webp', label: '.webp' },
             ]}
             {...form.getInputProps('featuresThumbnailsFormat')}
+          />
+
+          <Switch
+            label='Thumbnails On Upload'
+            description='Enables thumbnail generation for videos on upload. (Uses more resources on upload)'
+            {...form.getInputProps('featuresThumbnailsOnUpload', { type: 'checkbox' })}
           />
 
           <div />

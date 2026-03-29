@@ -208,7 +208,7 @@ export default typedPlugin(
             data,
             select: fileSelect,
           });
-
+          
           await datasource.put(fileUpload.name, compressed?.buffer ?? file.filepath, {
             mimetype: fileUpload.type,
           });

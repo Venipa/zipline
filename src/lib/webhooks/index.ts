@@ -1,9 +1,10 @@
 import { Config } from '../config/validate';
-import { onUpload as discordOnUpload, onShorten as discordOnShorten } from './discord';
-import { onUpload as httpOnUpload, onShorten as httpOnShorten } from './http';
+import { onShorten as discordOnShorten, onUpload as discordOnUpload } from './discord';
+import { onShorten as httpOnShorten, onUpload as httpOnUpload } from './http';
+import { onUpload as thumbnailOnUpload } from './thumbnail';
 
 export async function onUpload(config: Config, args: Parameters<typeof discordOnUpload>[1]) {
-  Promise.all([discordOnUpload(config, args), httpOnUpload(config, args)]);
+  Promise.all([discordOnUpload(config, args), httpOnUpload(config, args), thumbnailOnUpload(config, args)]);
 
   return;
 }

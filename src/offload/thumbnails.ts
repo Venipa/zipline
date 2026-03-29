@@ -5,8 +5,9 @@ import { Datasource } from '@/lib/datasource/Datasource';
 import type { File } from '@/lib/db/models/file';
 import { log } from '@/lib/logger';
 import ffmpeg from 'fluent-ffmpeg';
-import { createWriteStream, existsSync, readFileSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
+import { Readable } from 'stream';
 import { isMainThread, parentPort, workerData } from 'worker_threads';
 import { dbProxy, pending } from './proxiedDb';
 
@@ -44,46 +45,90 @@ function name(str: string) {
   return `${str}.${config.features.thumbnails.format}`;
 }
 
-function genThumbnail(input: string, output: string): Promise<Buffer | undefined> {
+function genThumbnail(input: ReadableStream, output: string): Promise<Buffer | undefined> {
   return new Promise((resolve, reject) => {
-    ffmpeg(input)
-      .videoFilters('thumbnail')
+    let settled = false;
+
+    const isReadableStream = (value: unknown): value is Readable => {
+      return !!value && typeof (value as Readable).destroy === "function";
+    };
+
+    const cleanup = () => {
+      if (existsSync(output)) {
+        unlinkSync(output);
+      }
+
+      if (typeof input === "string" && existsSync(input)) {
+        unlinkSync(input);
+      }
+      if (isReadableStream(input)) {
+        input.destroy();
+      }
+    };
+
+    const resolveOnce = (value: Buffer | undefined) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const rejectOnce = (err: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    const command = ffmpeg(input as unknown as Readable)
+      .inputOptions(["-ss 1"])
+      .videoFilters("thumbnail=100")
       .frames(1)
       .output(output)
-      .on('start', (cmd) => {
-        logger.debug('generating thumbnail', { cmd });
+      .on("start", (cmd) => {
+        logger.debug("generating thumbnail", { cmd });
       })
-      .on('error', (err, _, stderr) => {
-        if (stderr && stderr.includes('does not contain any stream')) {
-          // mismatched mimetype, for example a video/ogg (.ogg) file with no video stream since
-          // for this specific case just set the mimetype to audio/ogg
-          // the method will return an empty buffer since there is no video stream
-
+      .on("error", (err, _stdout, stderr) => {
+        if (stderr?.includes("does not contain any stream")) {
           logger.error(
-            `file ${input} does not contain any video stream, it is probably an audio file... ignoring...`,
+            `file ${String(
+              input,
+            )} does not contain any video stream, probably audio only`,
           );
-          resolve(Buffer.alloc(0));
+          return resolveOnce(Buffer.alloc(0));
         }
 
-        logger.error('failed to generate thumbnail', { err: err.message });
-        reject(err);
+        logger.error("failed to generate thumbnail", {
+          err: err.message,
+        });
+
+        if (isReadableStream(input)) {
+          input.destroy(err);
+        }
+
+        return rejectOnce(err);
       })
-      .on('end', () => {
+      .on("end", () => {
         if (!existsSync(output)) {
-          logger.error('expected thumbnail file does not exist', { thumbnailTmp: output });
-          unlinkSync(input);
-          return resolve(undefined);
+          logger.error("expected thumbnail file does not exist", {
+            thumbnailTmp: output,
+          });
+          return resolveOnce(undefined);
         }
 
         const buffer = readFileSync(output);
 
-        unlinkSync(output);
-        unlinkSync(input);
-        logger.debug('removed temporary files', { file: input, thumbnail: output });
+        logger.debug("thumbnail generated");
+        return resolveOnce(buffer);
+      });
 
-        resolve(buffer);
-      })
-      .run();
+    command.run();
   });
 }
 
@@ -104,20 +149,11 @@ async function generate(config: Config, datasource: Datasource, ids: string[]) {
       continue;
     }
 
-    const stream = await datasource.get(file.name);
+    const stream = await datasource.range(file.name, 0, Math.min(file.size, 1024 * 1024 * 20)); // 20MB or the file size, whichever is smaller
     if (!stream) return;
 
-    const tmpFile = join(config.core.tempDirectory, `zthumbnail_${file.id}.tmp`);
-    const writeStream = createWriteStream(tmpFile);
-    await new Promise((resolve, reject) => {
-      stream.pipe(writeStream);
-      stream.on('error', reject);
-      writeStream.on('error', reject);
-      writeStream.on('finish', resolve as any);
-    });
-
     const thumbnailTmpFile = join(config.core.tempDirectory, name(`zthumbnail_${file.id}`));
-    const thumbnail = await genThumbnail(tmpFile, thumbnailTmpFile);
+    const thumbnail = await genThumbnail(stream as unknown as ReadableStream, thumbnailTmpFile);
     if (!thumbnail) return;
 
     const existing = await datasource.size(name(`.thumbnail.${file.id}`));
@@ -197,3 +233,6 @@ async function main() {
 }
 
 main();
+
+
+export { generate as generateThumbnail };

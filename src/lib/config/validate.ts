@@ -1,11 +1,11 @@
+import ms, { StringValue } from 'ms';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { z } from 'zod';
+import { COMPRESS_TYPES, checkOutput } from '../compress';
 import { log } from '../logger';
 import { ParsedConfig } from './read';
 import { PROP_TO_ENV } from './read/env';
-import { checkOutput, COMPRESS_TYPES } from '../compress';
-import ms, { StringValue } from 'ms';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -204,6 +204,7 @@ export const schema = z.object({
       enabled: z.boolean().default(true),
       num_threads: z.number().default(4),
       format: z.enum(['jpg', 'png', 'webp']).default('jpg'),
+      onUpload: z.boolean().default(false),
     }),
     metrics: z.object({
       enabled: z.boolean().default(true),
